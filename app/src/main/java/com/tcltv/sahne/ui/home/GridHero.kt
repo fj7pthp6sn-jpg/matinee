@@ -46,7 +46,7 @@ import com.tcltv.sahne.ui.interStyle
  * nothing played yet show only their name over the tinted backdrop.
  */
 @Composable
-internal fun GridHero(app: LaunchableApp, entry: LastPlayed?, viewModel: LauncherViewModel, modifier: Modifier) {
+internal fun GridHero(app: LaunchableApp, entry: LastPlayed?, viewModel: LauncherViewModel, modifier: Modifier, hint: String? = null) {
     Box(modifier.fillMaxSize()) {
         // Ends a little below the shelf's top edge, so artwork never sits behind the app grid. Its bottom is faded out
         // with an alpha mask rather than a colour, so it melts into the coloured backdrop and the glass shelf.
@@ -104,6 +104,10 @@ internal fun GridHero(app: LaunchableApp, entry: LastPlayed?, viewModel: Launche
                 overflow = TextOverflow.Ellipsis,
                 style = if (entry != null) interStyle(26.sp, 800).copy(lineHeight = 31.sp) else interStyle(40.sp, 800),
             )
+            if (entry == null && hint != null) {
+                Spacer(Modifier.height(8.dp))
+                BasicText(hint, maxLines = 2, overflow = TextOverflow.Ellipsis, style = interStyle(13.sp, 500, Palette.TextSecondary))
+            }
             val meta = listOfNotNull(entry?.subtitle, if (entry != null) app.label else null).joinToString(" · ")
             if (meta.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))

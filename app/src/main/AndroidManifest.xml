@@ -37,6 +37,11 @@
         <package android:name="com.tcl.airplay2" />
         <package android:name="com.realtek.airplay2" />
         <package android:name="com.google.android.apps.mediashell" />
+        <package android:name="com.ionitech.airscreen" />
+        <package android:name="com.ionitech.airscreen.tv" />
+        <package android:name="com.softwinner.airplay" />
+        <package android:name="com.waxrain.airplayer" />
+        <package android:name="com.cast.screen.mirroring" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
@@ -80,6 +85,24 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Screensaver: used by the system as a Daydream and by the launcher's own idle timer / preview. -->
+        <service
+            android:name=".screensaver.MatineeDreamService"
+            android:exported="true"
+            android:label="@string/screensaver_name"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+        <activity
+            android:name=".screensaver.ScreensaverActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Matinee" />
 
         <!-- Keeps the AirPlay receiver announced on the network while Matinee is in the background. -->
         <service

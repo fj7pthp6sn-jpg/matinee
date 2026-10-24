@@ -83,7 +83,7 @@ private const val GRID_SIDE = 48
 // Shared by the shelf's inner padding and the grid rows, so shelf tiles line up with the grid columns below.
 private const val ROW_INSET = 12
 // Pushes the shelf to the lower part of the screen so the hero has room above it and the first grid row peeks below.
-private const val HERO_SPACE = 236
+private const val HERO_SPACE = 105
 
 /** Bottom of the hero area in screen dp: top bar padding + list top padding + [HERO_SPACE]. */
 internal const val GRID_HERO_BOTTOM = 80 + 14 + HERO_SPACE
@@ -135,6 +135,9 @@ internal fun GridHome(
     var shelfFocused by remember { mutableStateOf(true) }
     var gridFocused by remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
+    val infoContext = androidx.compose.ui.platform.LocalContext.current
+    val showPrayer = remember(resumeTick) { com.tcltv.sahne.info.InfoPrefs.showPrayer(infoContext) }
+    val showMatches = remember(resumeTick) { com.tcltv.sahne.info.InfoPrefs.showMatches(infoContext) }
     // Read only in graphicsLayer and a derived flag, so the fade redraws the hero instead of recomposing the grid.
     val heroAlpha = animateFloatAsState(
         targetValue = if (shelfFocused) 1f else 0f,
@@ -174,7 +177,15 @@ internal fun GridHome(
     Box(Modifier.fillMaxSize()) {
         CinematicBackground(accent)
         if (current != null && heroVisible) {
-            GridHero(current, lastPlayed[current.packageName], viewModel, Modifier.graphicsLayer { alpha = heroAlpha.value })
+            val hasAccess = remember(resumeTick) { viewModel.hasNotificationAccess() }
+            val lastOpened = remember(resumeTick, current.packageName) { com.tcltv.sahne.info.LastLaunch.get(infoContext, current.packageName) }
+            val heroHint = when {
+                !hasAccess -> stringResource(R.string.hero_hint_no_access)
+                lastOpened > 0L -> stringResource(R.string.hero_last_opened, formatLastOpened(lastOpened))
+                lastPlayed.isEmpty() -> stringResource(R.string.hero_hint_empty)
+                else -> null
+            }
+            GridHero(current, lastPlayed[current.packageName], viewModel, Modifier.graphicsLayer { alpha = heroAlpha.value }, heroHint)
         }
         TopBar(viewModel, onOpenSettings, Modifier.padding(start = GRID_SIDE.dp, end = GRID_SIDE.dp, top = 30.dp))
 
@@ -237,30 +248,40 @@ internal fun GridHome(
                         )
                     }
                 }
+                if (showPrayer) {
+                    item(key = "prayer") {
+                        PrayerStrip(settings.weatherLocation, resumeTick, Modifier.padding(horizontal = ROW_INSET.dp))
+                    }
+                }
+                if (showMatches) {
+                    item(key = "matches") {
+                        MatchesCard(resumeTick, Modifier.padding(horizontal = ROW_INSET.dp))
+                    }
+                }
                 itemsIndexed(cells.chunked(COLUMNS), key = { index, _ -> "row$index" }) { _, row ->
                     CellRow(row, Modifier.padding(horizontal = ROW_INSET.dp)) { app, isRowEnd -> Cell(app, isRowEnd) }
                 }
-                if (visibleLiveTv.isNotEmpty() || visibleInputs.isNotEmpty()) {
-                    item(key = "inputs") {
-                        Row(Modifier.padding(start = ROW_INSET.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            BasicText(stringResource(R.string.section_inputs), style = interStyle(12.sp, 600, Color.White.copy(alpha = 0.55f)))
-                            Spacer(Modifier.width(14.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                visibleLiveTv.forEachIndexed { index, input ->
-                                    LiveTvChip(
-                                        input,
-                                        showLabel = visibleLiveTv.size > 1,
-                                        enabled = liftedPackage == null,
-                                        isLast = visibleInputs.isEmpty() && index == visibleLiveTv.lastIndex,
-                                    ) { viewModel.openLiveTv(input) }
-                                }
-                                visibleInputs.forEachIndexed { index, input ->
-                                    InputChip(input, enabled = liftedPackage == null, isLast = index == visibleInputs.lastIndex) {
-                                        viewModel.openInput(input)
-                                    }
-                                }
-                            }
-                        }
+            }
+        }
+
+        // HDMI inputs and Live TV sit top-left, right under the clock and date.
+        if (visibleLiveTv.isNotEmpty() || visibleInputs.isNotEmpty()) {
+            Row(
+                Modifier.padding(start = GRID_SIDE.dp, top = 68.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                visibleLiveTv.forEachIndexed { index, input ->
+                    LiveTvChip(
+                        input,
+                        showLabel = visibleLiveTv.size > 1,
+                        enabled = liftedPackage == null,
+                        isLast = visibleInputs.isEmpty() && index == visibleLiveTv.lastIndex,
+                    ) { viewModel.openLiveTv(input) }
+                }
+                visibleInputs.forEachIndexed { index, input ->
+                    InputChip(input, enabled = liftedPackage == null, isLast = index == visibleInputs.lastIndex) {
+                        viewModel.openInput(input)
                     }
                 }
             }
@@ -417,4 +438,13 @@ private fun MoveToolbar(modifier: Modifier) {
         ToolbarDot()
         ToolbarHint(stringResource(R.string.key_back), stringResource(R.string.edit_hint_done))
     }
+}
+
+/** "Today 21:40" for today, otherwise "12 Oct 21:40", in the TV's language. */
+private fun formatLastOpened(ms: Long): String {
+    val zone = java.time.ZoneId.systemDefault()
+    val moment = java.time.Instant.ofEpochMilli(ms).atZone(zone)
+    val time = moment.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    return if (moment.toLocalDate() == java.time.LocalDate.now(zone)) time
+    else moment.format(java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm", java.util.Locale.getDefault()))
 }

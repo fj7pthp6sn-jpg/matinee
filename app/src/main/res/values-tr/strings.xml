@@ -308,6 +308,100 @@
 
     <string name="switch_on">Açık</string>
     <string name="switch_off">Kapalı</string>
+
+    <!-- Ekran koruyucu, alt menü, ipuçları -->
+    <string name="screensaver_name">Matinee ekran koruyucu</string>
+    <string name="screensaver_upcoming">Yaklaşanlar</string>
+    <string name="screensaver_today">Bugün</string>
+    <string name="screensaver_tomorrow">Yarın</string>
+    <string name="settings_screensaver">Ekran koruyucu</string>
+    <string name="settings_screensaver_sub">Saat, tarih ve takvim</string>
+    <string name="setting_screensaver_idle">Başlama süresi</string>
+    <string name="setting_screensaver_idle_sub">Ana ekrana dokunulmazsa kendiliğinden başlar</string>
+    <string name="minutes_short">%1$d dk</string>
+    <string name="setting_screensaver_theme">Görünüm</string>
+    <string name="screensaver_theme_n">Stil %1$d</string>
+    <string name="setting_screensaver_calendar">Takvim bağlantısı</string>
+    <string name="setting_screensaver_calendar_sub">Yaklaşan etkinlikleri gösterir (iCal .ics bağlantısı)</string>
+    <string name="calendar_linked">Bağlı</string>
+    <string name="setting_screensaver_preview">Ekran koruyucuyu önizle</string>
+    <string name="setting_screensaver_system">Sistem ekran koruyucu ayarları</string>
+    <string name="setting_screensaver_system_sub">TV izin veriyorsa orada Matinee\'yi seçin</string>
+    <string name="note_screensaver">Süre ayarı her TV\'de çalışır. Sistem ekran koruyucusu TV\'ye bağlıdır; bazı TV\'ler bu ayarı gizler.</string>
+    <string name="calendar_url_placeholder">https://… .ics</string>
+    <string name="note_calendar_url">Google Takvim: Ayarlar → takviminiz → “iCal biçiminde gizli adres”. Apple/iCloud: takvimi herkese açık paylaşıp bağlantıyı kopyalayın (webcal:// da olur).</string>
+    <string name="menu_inputs">Girişler</string>
+    <string name="menu_mirroring">Ekran yansıtma</string>
+    <string name="menu_screensaver">Ekran koruyucu</string>
+    <string name="menu_settings">Ayarlar</string>
+    <string name="menu_no_inputs">Bu TV\'de giriş bulunamadı.</string>
+    <string name="note_notification_restricted">Android, dosyadan kurulan uygulamalar için bunu engelleyebilir. TV Ayarları → Uygulamalar → Matinee → ⋮ → “Kısıtlı ayarlara izin ver” yolunu izleyip tekrar deneyin. “İzlemeye devam et” bu izne ihtiyaç duyar.</string>
+    <string name="hero_hint_no_access">“İzlemeye devam et” için Ayarlar → Ana ekran bölümünden bildirim erişimini açın.</string>
+    <string name="hero_hint_empty">Henüz içerik yok: bir uygulamada bir şey oynatın, burada görünecek.</string>
+    <string name="note_city_quick">Ya da aşağıdaki listeden bir şehir seç.</string>
+    <string name="setting_screensaver_layout">Düzen</string>
+    <string name="layout_clock">Saat</string>
+    <string name="layout_calendar">Takvim</string>
+    <string name="setting_screensaver_weather">Hava durumunu göster</string>
+    <string name="mirroring_sub">TV\'deki AirPlay alıcısını ya da bunun için bir uygulamayı açar</string>
+    <string name="weather_clear_day">Açık</string>
+    <string name="weather_clear_night">Açık gece</string>
+    <string name="weather_cloudy">Bulutlu</string>
+    <string name="weather_fog">Sisli</string>
+    <string name="weather_rain">Yağmurlu</string>
+    <string name="weather_snow">Karlı</string>
+    <string name="weather_storm">Fırtına</string>
+    <string-array name="screensaver_themes">
+        <item>Akış: mavi</item>
+        <item>Akış: gün batımı</item>
+        <item>Akış: deniz</item>
+        <item>Akış: yeşil</item>
+        <item>Dağlarda gün batımı</item>
+        <item>Yıldızlı gece</item>
+        <item>Şehir silüeti</item>
+        <item>Deniz</item>
+        <item>Fotoğraflar (kendi resimlerin)</item>
+    </string-array>
+    <string name="settings_info">Namaz vakitleri ve maçlar</string>
+    <string name="settings_info_sub">Ana ekran ve ekran koruyucu</string>
+    <string name="setting_info_prayer">Ana ekranda namaz vakitleri</string>
+    <string name="setting_info_prayer_sub">Hava durumu için seçilen şehri kullanır</string>
+    <string name="setting_info_saver_prayer">Ekran koruyucuda namaz vakti</string>
+    <string name="setting_info_matches">Ana ekranda maç kartı</string>
+    <string name="setting_info_matches_sub">Galatasaray ve Erzurumspor, Süper Lig sıralaması</string>
+    <string name="note_info">Namaz vakitleri Aladhan\'dan (Diyanet yöntemi), maçlar ve sıralama ESPN\'den gelir. Resmi kaynaklardan bir iki dakika farklı olabilir. İnternet bağlantısı gerekir.</string>
+    <string name="prayer_fajr">İmsak</string>
+    <string name="prayer_sunrise">Güneş</string>
+    <string name="prayer_dhuhr">Öğle</string>
+    <string name="prayer_asr">İkindi</string>
+    <string name="prayer_maghrib">Akşam</string>
+    <string name="prayer_isha">Yatsı</string>
+    <string name="prayer_next">Sıradaki: %1$s, %2$s sonra</string>
+    <string name="duration_h_m">%1$d sa %2$d dk</string>
+    <string name="duration_m">%1$d dk</string>
+    <string name="info_loading_prayer">Namaz vakitleri yükleniyor…</string>
+    <string name="info_loading_matches">Maç bilgileri yükleniyor…</string>
+    <string name="match_last">Son</string>
+    <string name="match_next">Sıradaki</string>
+    <string name="match_none">Bilgi yok</string>
+    <string name="table_title">Süper Lig</string>
+    <string name="table_played">O</string>
+    <string name="table_points">P</string>
+    <string name="match_home_tag">(İ)</string>
+    <string name="match_away_tag">(D)</string>
+    <string name="hero_last_opened">Son açılış: %1$s</string>
+    <string name="setting_color_theme">Renk teması</string>
+    <string-array name="color_themes">
+        <item>Koyu</item>
+        <item>Açık mavi</item>
+        <item>Gece mavisi</item>
+        <item>Okyanus</item>
+        <item>Gün batımı</item>
+        <item>Orman</item>
+        <item>Mor</item>
+        <item>Bordo</item>
+            <item>Hava durumuna göre</item>
+    </string-array>
     <string name="folder_default_name">Klasör</string>
     <string name="tagline_folder">Uygulama klasörü</string>
     <string name="pin_reason_app">Bu uygulama kilitli</string>

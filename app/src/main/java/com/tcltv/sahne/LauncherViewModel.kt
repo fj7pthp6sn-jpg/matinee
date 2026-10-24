@@ -501,7 +501,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         ) { config, _ -> config }.collectLatest { (location, unit, refreshMinutes) ->
             while (true) {
                 val succeeded = try {
-                    _weather.value = WeatherUiState.Ready(weatherClient.current(location, unit))
+                    val now = weatherClient.current(location, unit)
+                    _weather.value = WeatherUiState.Ready(now)
+                    com.tcltv.sahne.ui.ThemeStore.setWeather(getApplication(), now.condition, now.isDay)
                     true
                 } catch (e: CancellationException) {
                     throw e
@@ -586,8 +588,31 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         if (app.folderId != null) {
             _openFolder.value = app.folderId
         } else {
-            gate.requireForApp(R.string.pin_reason_app, app.isLocked) { startSafely(appCatalog.launchIntent(app)) }
+            gate.requireForApp(R.string.pin_reason_app, app.isLocked) {
+                com.tcltv.sahne.info.LastLaunch.record(getApplication(), app.packageName)
+                startSafely(appCatalog.launchIntent(app))
+            }
         }
+    }
+
+    /** Shows the screensaver right away (home menu and settings preview). */
+    fun previewScreensaver(): Boolean =
+        startSafely(Intent(getApplication(), com.tcltv.sahne.screensaver.ScreensaverActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+
+    /**
+     * Opens whatever can receive a mirrored iPhone/iPad screen: the TV's built-in AirPlay receiver or a common receiver
+     * app. Without one, the Play Store opens on a receiver app. The TV itself must provide the AirPlay receiving.
+     */
+    fun openMirroring(): Boolean {
+        val pm = getApplication<Application>().packageManager
+        for (pkg in MIRROR_RECEIVER_PACKAGES) {
+            val intent = pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg) ?: continue
+            if (startSafely(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) return true
+        }
+        val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=AirScreen")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return startSafely(market) || startSafely(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=AirScreen")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 
     fun openInput(input: HdmiInput) = startSafely(inputCatalog.launchIntent(input.id))
@@ -783,3 +808,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         const val MAX_LOCAL_NOTICES = 20
     }
 }
+
+private val MIRROR_RECEIVER_PACKAGES = listOf(
+    "com.tcl.airplay2",
+    "com.realtek.airplay2",
+    "com.ionitech.airscreen",
+    "com.ionitech.airscreen.tv",
+    "com.softwinner.airplay",
+    "com.waxrain.airplayer",
+    "com.cast.screen.mirroring",
+)

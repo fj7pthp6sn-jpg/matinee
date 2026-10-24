@@ -318,6 +318,100 @@
 
     <string name="switch_on">On</string>
     <string name="switch_off">Off</string>
+
+    <!-- Screensaver, bottom menu, hints -->
+    <string name="screensaver_name">Matinee screensaver</string>
+    <string name="screensaver_upcoming">Upcoming</string>
+    <string name="screensaver_today">Today</string>
+    <string name="screensaver_tomorrow">Tomorrow</string>
+    <string name="settings_screensaver">Screensaver</string>
+    <string name="settings_screensaver_sub">Clock, date and calendar</string>
+    <string name="setting_screensaver_idle">Start after</string>
+    <string name="setting_screensaver_idle_sub">Starts when the home screen is left untouched</string>
+    <string name="minutes_short">%1$d min</string>
+    <string name="setting_screensaver_theme">Look</string>
+    <string name="screensaver_theme_n">Style %1$d</string>
+    <string name="setting_screensaver_calendar">Calendar link</string>
+    <string name="setting_screensaver_calendar_sub">Shows upcoming events (iCal .ics link)</string>
+    <string name="calendar_linked">Linked</string>
+    <string name="setting_screensaver_preview">Preview screensaver</string>
+    <string name="setting_screensaver_system">System screensaver settings</string>
+    <string name="setting_screensaver_system_sub">Choose Matinee there if your TV allows it</string>
+    <string name="note_screensaver">The timer works on every TV. The system screensaver depends on the TV: some hide that setting.</string>
+    <string name="calendar_url_placeholder">https://… .ics</string>
+    <string name="note_calendar_url">Google Calendar: Settings → your calendar → “Secret address in iCal format”. Apple/iCloud: share the calendar publicly and copy the link (webcal:// works too).</string>
+    <string name="menu_inputs">Inputs</string>
+    <string name="menu_mirroring">Screen mirroring</string>
+    <string name="menu_screensaver">Screensaver</string>
+    <string name="menu_settings">Settings</string>
+    <string name="menu_no_inputs">No inputs found on this TV.</string>
+    <string name="note_notification_restricted">Android may block this for apps installed from a file. Open TV Settings → Apps → Matinee → ⋮ → “Allow restricted settings”, then try again. “Continue watching” needs this access.</string>
+    <string name="hero_hint_no_access">Turn on notification access in Settings → Home to see “continue watching”.</string>
+    <string name="hero_hint_empty">Nothing yet: play something in an app and it will appear here.</string>
+    <string name="note_city_quick">Or pick a city from the list below.</string>
+    <string name="setting_screensaver_layout">Layout</string>
+    <string name="layout_clock">Clock</string>
+    <string name="layout_calendar">Calendar</string>
+    <string name="setting_screensaver_weather">Show weather</string>
+    <string name="mirroring_sub">Opens the AirPlay receiver on this TV, or an app for it</string>
+    <string name="weather_clear_day">Clear</string>
+    <string name="weather_clear_night">Clear night</string>
+    <string name="weather_cloudy">Cloudy</string>
+    <string name="weather_fog">Fog</string>
+    <string name="weather_rain">Rain</string>
+    <string name="weather_snow">Snow</string>
+    <string name="weather_storm">Storm</string>
+    <string-array name="screensaver_themes">
+        <item>Flow: blue</item>
+        <item>Flow: sunset</item>
+        <item>Flow: sea</item>
+        <item>Flow: green</item>
+        <item>Mountains at sunset</item>
+        <item>Starry night</item>
+        <item>City skyline</item>
+        <item>Sea</item>
+        <item>Photos (your own pictures)</item>
+    </string-array>
+    <string name="settings_info">Prayer times and matches</string>
+    <string name="settings_info_sub">Home screen and screensaver</string>
+    <string name="setting_info_prayer">Prayer times on home</string>
+    <string name="setting_info_prayer_sub">Uses the city chosen for the weather</string>
+    <string name="setting_info_saver_prayer">Prayer time in screensaver</string>
+    <string name="setting_info_matches">Match card on home</string>
+    <string name="setting_info_matches_sub">Galatasaray and Erzurumspor, Süper Lig table</string>
+    <string name="note_info">Prayer times come from Aladhan (Diyanet method), matches and the table from ESPN. They can differ by a minute or two from official sources. Needs an internet connection.</string>
+    <string name="prayer_fajr">Fajr</string>
+    <string name="prayer_sunrise">Sunrise</string>
+    <string name="prayer_dhuhr">Dhuhr</string>
+    <string name="prayer_asr">Asr</string>
+    <string name="prayer_maghrib">Maghrib</string>
+    <string name="prayer_isha">Isha</string>
+    <string name="prayer_next">Next: %1$s in %2$s</string>
+    <string name="duration_h_m">%1$d h %2$d min</string>
+    <string name="duration_m">%1$d min</string>
+    <string name="info_loading_prayer">Loading prayer times…</string>
+    <string name="info_loading_matches">Loading match info…</string>
+    <string name="match_last">Last</string>
+    <string name="match_next">Next</string>
+    <string name="match_none">No information</string>
+    <string name="table_title">Süper Lig</string>
+    <string name="table_played">P</string>
+    <string name="table_points">Pts</string>
+    <string name="match_home_tag">(H)</string>
+    <string name="match_away_tag">(A)</string>
+    <string name="hero_last_opened">Last opened: %1$s</string>
+    <string name="setting_color_theme">Color theme</string>
+    <string-array name="color_themes">
+        <item>Dark</item>
+        <item>Light blue</item>
+        <item>Night blue</item>
+        <item>Ocean</item>
+        <item>Sunset</item>
+        <item>Forest</item>
+        <item>Purple</item>
+        <item>Burgundy</item>
+            <item>Follows the weather</item>
+    </string-array>
     <string name="folder_default_name">Folder</string>
     <string name="tagline_folder">A folder of apps</string>
     <string name="pin_reason_app">This app is locked</string>

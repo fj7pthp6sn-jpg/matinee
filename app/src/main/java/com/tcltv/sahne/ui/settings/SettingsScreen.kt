@@ -33,9 +33,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -69,6 +68,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -112,6 +112,8 @@ import com.tcltv.sahne.ui.home.CinematicBackground
 import com.tcltv.sahne.ui.home.NeutralAccent
 import com.tcltv.sahne.ui.home.TopBar
 import com.tcltv.sahne.ui.home.profileColorCount
+import com.tcltv.sahne.data.WeatherLocation
+import com.tcltv.sahne.screensaver.ScreensaverPrefs
 import com.tcltv.sahne.ui.interStyle
 import com.tcltv.sahne.ui.longPressClickable
 
@@ -123,6 +125,8 @@ private enum class Section(@StringRes val title: Int, @StringRes val subtitle: I
     HOME(R.string.settings_home, R.string.settings_home_sub, R.drawable.ic_home),
     PARENTAL(R.string.settings_parental, R.string.settings_parental_sub, R.drawable.ic_lock),
     DEVICE(R.string.settings_device, R.string.settings_device_sub, R.drawable.ic_cpu),
+    SCREENSAVER(R.string.settings_screensaver, R.string.settings_screensaver_sub, R.drawable.ic_moon),
+    INFO(R.string.settings_info, R.string.settings_info_sub, R.drawable.ic_bell),
     BLUETOOTH(R.string.settings_bluetooth, R.string.settings_bluetooth_sub, R.drawable.ic_bluetooth),
     ABOUT(R.string.settings_about, R.string.settings_about_sub, R.drawable.ic_info_circle),
     TV_SETTINGS(R.string.settings_tv, R.string.settings_tv_sub, R.drawable.ic_device_tv),
@@ -135,6 +139,9 @@ private sealed interface SubPage {
     data class InputEditor(val inputId: String) : SubPage
     data object CleanExclusions : SubPage
     data object Language : SubPage
+    data object CalendarUrl : SubPage
+    data object ScreensaverStyle : SubPage
+    data object ColorTheme : SubPage
     data object LockedApps : SubPage
     data object Wallpaper : SubPage
 }
@@ -224,6 +231,9 @@ fun SettingsScreen(viewModel: LauncherViewModel, onClose: () -> Unit, onEditApps
                     SubPage.Licenses -> stringResource(R.string.setting_licenses)
                     SubPage.CleanExclusions -> stringResource(R.string.setting_exclusions)
                     SubPage.Language -> stringResource(R.string.setting_language)
+                    SubPage.CalendarUrl -> stringResource(R.string.setting_screensaver_calendar)
+                    SubPage.ScreensaverStyle -> stringResource(R.string.setting_screensaver_theme)
+                    SubPage.ColorTheme -> stringResource(R.string.setting_color_theme)
                     SubPage.LockedApps -> stringResource(R.string.setting_locked_apps)
                     SubPage.Wallpaper -> stringResource(R.string.setting_wallpaper)
                     is SubPage.InputEditor -> stringResource(R.string.edit_input)
@@ -239,6 +249,9 @@ fun SettingsScreen(viewModel: LauncherViewModel, onClose: () -> Unit, onEditApps
                 SubPage.Licenses -> LicensesPage(panelRequester)
                 SubPage.CleanExclusions -> CleanExclusionsPage(viewModel, panelRequester)
                 SubPage.Language -> LanguagePage(panelRequester)
+                SubPage.CalendarUrl -> CalendarUrlPage(panelRequester)
+                SubPage.ScreensaverStyle -> ScreensaverStylePage(viewModel, panelRequester)
+                SubPage.ColorTheme -> ColorThemePage(panelRequester)
                 SubPage.LockedApps -> LockedAppsPage(viewModel, panelRequester)
                 SubPage.Wallpaper -> WallpaperPage(viewModel, panelRequester)
             }
@@ -396,6 +409,8 @@ private fun SectionContent(
         Section.PARENTAL -> ParentalPanel(viewModel, firstRow, open)
         Section.INPUTS -> InputsPanel(viewModel, firstRow, open)
         Section.DEVICE -> DevicePanel(viewModel, firstRow, open)
+        Section.SCREENSAVER -> ScreensaverPanel(viewModel, firstRow, open)
+        Section.INFO -> InfoPanel(firstRow)
         Section.ABOUT -> AboutPanel(viewModel, firstRow, open)
         Section.TV_SETTINGS -> SystemPanel(
             viewModel,
@@ -470,6 +485,11 @@ private fun HomePanel(viewModel: LauncherViewModel, firstRow: FocusRequester, on
         ) {
             viewModel.update { setCardTheme(if (s.cardTheme == CardTheme.LIGHT) CardTheme.DARK else CardTheme.LIGHT) }
         }
+        ValueRow(
+            R.string.setting_color_theme,
+            null,
+            stringArrayResource(R.array.color_themes).getOrElse(com.tcltv.sahne.ui.ThemeStore.index) { "" },
+        ) { open(SubPage.ColorTheme) }
         ValueRow(R.string.setting_clock_format, null, stringResource(if (s.use24Hour) R.string.clock_24 else R.string.clock_12)) {
             viewModel.update { setUse24Hour(!s.use24Hour) }
         }
@@ -547,6 +567,7 @@ private fun InputsPanel(viewModel: LauncherViewModel, firstRow: FocusRequester, 
         ) { viewModel.update { setAutoDetectInputs(it) } }
         ToggleRow(R.string.setting_hide_disconnected, null, s.hideDisconnectedInputs) { viewModel.update { setHideDisconnectedInputs(it) } }
         if (inputs.isEmpty()) Note(R.string.note_no_inputs)
+        ValueRow(stringResource(R.string.menu_mirroring), stringResource(R.string.mirroring_sub), null) { viewModel.openMirroring() }
         Note(R.string.note_inputs)
     }
 }
@@ -876,17 +897,152 @@ private fun CleanExclusionsPage(viewModel: LauncherViewModel, firstRow: FocusReq
 }
 
 @Composable
+private fun ScreensaverPanel(viewModel: LauncherViewModel, firstRow: FocusRequester, open: (SubPage) -> Unit) {
+    val context = LocalContext.current
+    var idle by remember { mutableStateOf(ScreensaverPrefs.idleMinutes(context)) }
+    val theme = ScreensaverPrefs.theme(context)
+    var layout by remember { mutableStateOf(ScreensaverPrefs.layout(context)) }
+    var weatherOn by remember { mutableStateOf(ScreensaverPrefs.showWeather(context)) }
+    val hasCalendar = ScreensaverPrefs.calendarUrl(context).isNotBlank()
+    PanelList {
+        ValueRow(
+            stringResource(R.string.setting_screensaver_idle),
+            stringResource(R.string.setting_screensaver_idle_sub),
+            if (idle == 0) stringResource(R.string.switch_off) else stringResource(R.string.minutes_short, idle),
+            modifier = Modifier.focusRequester(firstRow),
+        ) {
+            val options = ScreensaverPrefs.IDLE_OPTIONS
+            idle = options[(options.indexOf(idle) + 1).mod(options.size)]
+            ScreensaverPrefs.setIdleMinutes(context, idle)
+        }
+        ValueRow(
+            stringResource(R.string.setting_screensaver_theme),
+            null,
+            stringArrayResource(R.array.screensaver_themes).getOrElse(theme) { "" },
+        ) { open(SubPage.ScreensaverStyle) }
+        ValueRow(
+            stringResource(R.string.setting_screensaver_layout),
+            null,
+            stringResource(if (layout == ScreensaverPrefs.LAYOUT_CALENDAR) R.string.layout_calendar else R.string.layout_clock),
+        ) {
+            layout = if (layout == ScreensaverPrefs.LAYOUT_CALENDAR) ScreensaverPrefs.LAYOUT_CLOCK else ScreensaverPrefs.LAYOUT_CALENDAR
+            ScreensaverPrefs.setLayout(context, layout)
+        }
+        ToggleRow(stringResource(R.string.setting_screensaver_weather), null, weatherOn) {
+            weatherOn = it
+            ScreensaverPrefs.setShowWeather(context, it)
+        }
+        ValueRow(
+            stringResource(R.string.setting_screensaver_calendar),
+            stringResource(R.string.setting_screensaver_calendar_sub),
+            stringResource(if (hasCalendar) R.string.calendar_linked else R.string.not_set),
+        ) { open(SubPage.CalendarUrl) }
+        ValueRow(stringResource(R.string.setting_screensaver_preview), null, null) { viewModel.previewScreensaver() }
+        ValueRow(stringResource(R.string.setting_screensaver_system), stringResource(R.string.setting_screensaver_system_sub), null) {
+            viewModel.openSystemSettings(Settings.ACTION_DREAM_SETTINGS)
+        }
+        Note(R.string.note_screensaver)
+    }
+}
+
+@Composable
+private fun InfoPanel(firstRow: FocusRequester) {
+    val context = LocalContext.current
+    var prayer by remember { mutableStateOf(com.tcltv.sahne.info.InfoPrefs.showPrayer(context)) }
+    var matches by remember { mutableStateOf(com.tcltv.sahne.info.InfoPrefs.showMatches(context)) }
+    var saver by remember { mutableStateOf(com.tcltv.sahne.info.InfoPrefs.saverPrayer(context)) }
+    PanelList {
+        ToggleRow(stringResource(R.string.setting_info_prayer), stringResource(R.string.setting_info_prayer_sub), prayer, Modifier.focusRequester(firstRow)) {
+            prayer = it
+            com.tcltv.sahne.info.InfoPrefs.setShowPrayer(context, it)
+        }
+        ToggleRow(stringResource(R.string.setting_info_saver_prayer), null, saver) {
+            saver = it
+            com.tcltv.sahne.info.InfoPrefs.setSaverPrayer(context, it)
+        }
+        ToggleRow(stringResource(R.string.setting_info_matches), stringResource(R.string.setting_info_matches_sub), matches) {
+            matches = it
+            com.tcltv.sahne.info.InfoPrefs.setShowMatches(context, it)
+        }
+        ValueRow("Logo durumu", null, com.tcltv.sahne.info.LogoCache.lastStatus) { }
+        Note(R.string.note_info)
+    }
+}
+
+@Composable
+private fun ColorThemePage(firstRow: FocusRequester) {
+    val context = LocalContext.current
+    val names = stringArrayResource(R.array.color_themes)
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(120)
+        runCatching { firstRow.requestFocus() }
+    }
+    PanelList {
+        names.forEachIndexed { index, name ->
+            ChoiceRow(name, com.tcltv.sahne.ui.ThemeStore.index == index, if (index == 0) Modifier.focusRequester(firstRow) else Modifier) {
+                com.tcltv.sahne.ui.ThemeStore.set(context, index)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScreensaverStylePage(viewModel: LauncherViewModel, firstRow: FocusRequester) {
+    val context = LocalContext.current
+    var selected by remember { mutableStateOf(ScreensaverPrefs.theme(context)) }
+    val names = stringArrayResource(R.array.screensaver_themes)
+    LaunchedEffect(Unit) { runCatching { firstRow.requestFocus() } }
+    PanelList {
+        names.forEachIndexed { index, name ->
+            ChoiceRow(name, selected == index, if (index == 0) Modifier.focusRequester(firstRow) else Modifier) {
+                selected = index
+                ScreensaverPrefs.setTheme(context, index)
+            }
+        }
+        ValueRow(stringResource(R.string.setting_screensaver_preview), null, null) { viewModel.previewScreensaver() }
+    }
+}
+
+@Composable
+private fun CalendarUrlPage(firstRow: FocusRequester) {
+    val context = LocalContext.current
+    var url by remember { mutableStateOf(ScreensaverPrefs.calendarUrl(context)) }
+    LaunchedEffect(Unit) { runCatching { firstRow.requestFocus() } }
+    PanelList {
+        TextInput(value = url, placeholder = stringResource(R.string.calendar_url_placeholder), modifier = Modifier.focusRequester(firstRow)) {
+            url = it
+            ScreensaverPrefs.setCalendarUrl(context, it.trim())
+        }
+        Note(R.string.note_calendar_url)
+    }
+}
+
+@Composable
 private fun CitySearchPage(viewModel: LauncherViewModel, firstRow: FocusRequester, onDone: () -> Unit) {
     val search by viewModel.citySearch.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(Unit) { runCatching { firstRow.requestFocus() } }
+    LaunchedEffect(Unit) {
+        // The list is composed a moment after this page; asking for focus too early finds nothing to focus.
+        kotlinx.coroutines.delay(120)
+        runCatching { firstRow.requestFocus() }
+    }
     PanelList {
-        TextInput(value = query, placeholder = stringResource(R.string.city_placeholder), modifier = Modifier.focusRequester(firstRow)) {
+        TextInput(value = query, placeholder = stringResource(R.string.city_placeholder)) {
             query = it
             viewModel.searchCities(it)
         }
         when (val state = search) {
-            CitySearchState.Idle -> Note(R.string.note_city_search)
+            CitySearchState.Idle -> {
+                Note(R.string.note_city_search)
+                Note(R.string.note_city_quick)
+                QUICK_CITIES.forEachIndexed { index, city ->
+                    // Focus starts on the list, not on the text field: its on-screen keyboard swallows the remote's Back key.
+                    ValueRow(city.name.substringBefore(','), null, null, if (index == 0) Modifier.focusRequester(firstRow) else Modifier) {
+                        viewModel.setWeatherLocation(city)
+                        onDone()
+                    }
+                }
+            }
             CitySearchState.Searching -> Note(R.string.searching)
             CitySearchState.Failed -> Note(R.string.search_failed)
             is CitySearchState.Results -> {
@@ -908,7 +1064,10 @@ private fun InputEditorPage(viewModel: LauncherViewModel, inputId: String, first
     val input = inputs.firstOrNull { it.id == inputId } ?: return
     var name by remember(inputId) { mutableStateOf(input.name) }
     LaunchedEffect(inputId) { runCatching { firstRow.requestFocus() } }
-    Column {
+    // The whole page scrolls, and the logos are plain rows instead of a nested lazy grid: the panel is only a few
+    // hundred dp tall, so the old grid was squeezed to a sliver and the lower logos (and the reset row) could not be
+    // reached or picked with the remote.
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         BasicText(
             when (input.detection) {
                 InputDetection.CEC -> stringResource(R.string.detected_as, input.portLabel, input.detectedName.orEmpty())
@@ -925,27 +1084,30 @@ private fun InputEditorPage(viewModel: LauncherViewModel, inputId: String, first
         }
         Spacer(Modifier.height(12.dp))
         FieldLabel(R.string.field_logo)
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(4),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(vertical = 4.dp),
-            modifier = Modifier.heightIn(max = 200.dp),
-        ) {
-            items(DeviceLogo.entries) { logo ->
-                LogoOption(logo, selected = logo == input.logo) {
-                    val customName = name.isNotBlank() && name != (input.detectedName ?: input.portLabel)
-                    viewModel.setInputOverride(input, if (customName) name else null, logo)
+        DeviceLogo.entries.chunked(LOGO_COLUMNS).forEach { rowLogos ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowLogos.forEach { logo ->
+                    Box(Modifier.weight(1f)) {
+                        LogoOption(logo, selected = logo == input.logo) {
+                            val customName = name.isNotBlank() && name != (input.detectedName ?: input.portLabel)
+                            viewModel.setInputOverride(input, if (customName) name else null, logo)
+                        }
+                    }
                 }
+                repeat(LOGO_COLUMNS - rowLogos.size) { Spacer(Modifier.weight(1f)) }
             }
+            Spacer(Modifier.height(8.dp))
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
         ValueRow(R.string.reset_detected, null, null) {
             viewModel.resetInputOverride(input)
             name = input.detectedName ?: input.portLabel
         }
+        Spacer(Modifier.height(24.dp))
     }
 }
+
+private const val LOGO_COLUMNS = 4
 
 @Composable
 private fun InputRow(input: HdmiInput, modifier: Modifier, onClick: () -> Unit) {
@@ -977,6 +1139,7 @@ private fun LogoOption(logo: DeviceLogo, selected: Boolean, onClick: () -> Unit)
     val content = if (selected) Palette.OnAmber else Palette.TextPrimary
     Column(
         Modifier
+            .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(
@@ -1211,6 +1374,7 @@ private fun NotificationAccessRow(viewModel: LauncherViewModel) {
     ) {
         viewModel.openSystemSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
     }
+    if (!granted) Note(R.string.note_notification_restricted)
 }
 
 @Composable
@@ -1331,3 +1495,36 @@ private fun WifiNameRow(viewModel: LauncherViewModel) {
         }
     }
 }
+
+/** Big Turkish cities, so a location can be picked with the remote alone, without typing. */
+private val QUICK_CITIES = listOf(
+    WeatherLocation("Iğdır, Türkiye", 39.92, 44.05),
+    WeatherLocation("İstanbul, Türkiye", 41.01, 28.98),
+    WeatherLocation("Ankara, Türkiye", 39.93, 32.86),
+    WeatherLocation("İzmir, Türkiye", 38.42, 27.14),
+    WeatherLocation("Bursa, Türkiye", 40.18, 29.06),
+    WeatherLocation("Antalya, Türkiye", 36.90, 30.70),
+    WeatherLocation("Adana, Türkiye", 37.00, 35.32),
+    WeatherLocation("Konya, Türkiye", 37.87, 32.48),
+    WeatherLocation("Gaziantep, Türkiye", 37.07, 37.38),
+    WeatherLocation("Şanlıurfa, Türkiye", 37.16, 38.79),
+    WeatherLocation("Kocaeli, Türkiye", 40.77, 29.92),
+    WeatherLocation("Mersin, Türkiye", 36.80, 34.64),
+    WeatherLocation("Diyarbakır, Türkiye", 37.91, 40.24),
+    WeatherLocation("Kayseri, Türkiye", 38.72, 35.49),
+    WeatherLocation("Eskişehir, Türkiye", 39.78, 30.52),
+    WeatherLocation("Samsun, Türkiye", 41.29, 36.33),
+    WeatherLocation("Trabzon, Türkiye", 41.00, 39.72),
+    WeatherLocation("Denizli, Türkiye", 37.77, 29.09),
+    WeatherLocation("Malatya, Türkiye", 38.35, 38.31),
+    WeatherLocation("Erzurum, Türkiye", 39.90, 41.27),
+    WeatherLocation("Van, Türkiye", 38.49, 43.38),
+    WeatherLocation("Balıkesir, Türkiye", 39.65, 27.89),
+    WeatherLocation("Tekirdağ, Türkiye", 40.98, 27.51),
+    WeatherLocation("Muğla, Türkiye", 37.22, 28.36),
+    WeatherLocation("Sakarya, Türkiye", 40.78, 30.40),
+    WeatherLocation("Hatay, Türkiye", 36.20, 36.16),
+    WeatherLocation("Manisa, Türkiye", 38.61, 27.43),
+    WeatherLocation("Aydın, Türkiye", 37.85, 27.85),
+    WeatherLocation("Kahramanmaraş, Türkiye", 37.58, 36.94),
+)

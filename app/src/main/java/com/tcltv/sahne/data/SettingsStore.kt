@@ -75,7 +75,7 @@ data class LauncherSettings(
     val userWallpapers: List<String> = emptyList(),
 ) {
     companion object {
-        val DEFAULT_LOCATION = WeatherLocation("İstanbul", 41.0138, 28.9497)
+        val DEFAULT_LOCATION = WeatherLocation("Iğdır, Türkiye", 39.9237, 44.0450)
     }
 }
 

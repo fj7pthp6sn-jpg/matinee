@@ -34,6 +34,14 @@ android {
     // The Play upload key lives outside the project so it can never be committed or shared with the source.
     val uploadKeyFile = File(System.getProperty("user.home"), ".matinee-signing/keystore.properties")
     signingConfigs {
+        // A fixed debug key shared by every build, so a new debug APK installs over the previous one
+        // instead of failing with a signature mismatch (CI would otherwise generate a fresh key each run).
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (uploadKeyFile.isFile) {
             val props = Properties().apply { uploadKeyFile.inputStream().use(::load) }
             create("upload") {

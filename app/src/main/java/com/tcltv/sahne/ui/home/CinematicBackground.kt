@@ -31,6 +31,7 @@ import com.tcltv.sahne.ui.LocalBackdrop
 import com.tcltv.sahne.ui.LocalReduceMotion
 import com.tcltv.sahne.ui.LocalWallpaper
 import com.tcltv.sahne.ui.Palette
+import com.tcltv.sahne.ui.ThemeStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -39,25 +40,34 @@ import kotlinx.coroutines.withContext
  * Rendered once per accent into a bitmap off the main thread: drawing it live cost ~100 ms of GPU time per frame on the TV.
  */
 @Composable
-fun CinematicBackground(accent: Color, modifier: Modifier = Modifier) {
+fun CinematicBackground(appAccent: Color, modifier: Modifier = Modifier) {
     val wallpaper = LocalWallpaper.current
     if (wallpaper != null) {
         WallpaperBackground(wallpaper, modifier)
         return
     }
+    val base = ThemeStore.base
+    // Themes other than the dark one bring their own glow colour instead of the focused app's.
+    val accent = ThemeStore.accent ?: appAccent
+    val auto = ThemeStore.isAuto
+    val condition = ThemeStore.weatherCondition
+    val isDay = ThemeStore.weatherIsDay
     var size by remember { mutableStateOf(IntSize.Zero) }
     val cache = remember { BackdropCache() }
     // Shared with the glass surfaces, which show their own slice of whatever is drawn here.
     val shared = LocalBackdrop.current
     val reduceMotion = LocalReduceMotion.current
-    LaunchedEffect(accent, size) {
+    LaunchedEffect(accent, base, size, auto, condition, isDay) {
         if (size == IntSize.Zero) return@LaunchedEffect
-        val cached = cache.get(accent.toArgb())
+        val key = if (auto) 1_000_000 + condition.ordinal * 2 + (if (isDay) 1 else 0) else accent.toArgb() * 31 + base.toArgb()
+        val cached = cache.get(key)
         val image = cached ?: run {
             // Holding the D-pad changes the accent every few frames; render only once focus settles.
             delay(RENDER_DEBOUNCE_MS)
-            withContext(Dispatchers.Default) { renderBackdrop(size, accent.toArgb()).asImageBitmap() }
-                .also { cache.put(accent.toArgb(), it) }
+            withContext(Dispatchers.Default) {
+                (if (auto) renderWeatherBackdrop(size, condition, isDay, base.toArgb(), accent.toArgb())
+                else renderBackdrop(size, accent.toArgb(), base.toArgb())).asImageBitmap()
+            }.also { cache.put(key, it) }
         }
         if (shared.to === image) return@LaunchedEffect
         shared.from = shared.to
@@ -74,7 +84,7 @@ fun CinematicBackground(accent: Color, modifier: Modifier = Modifier) {
     Box(
         modifier
             .fillMaxSize()
-            .background(Palette.Background)
+            .background(base)
             .onSizeChanged { size = it },
     ) {
         shared.from?.let { Image(it, contentDescription = null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize()) }
@@ -110,13 +120,12 @@ private class BackdropCache {
 private const val MAX_RENDER_WIDTH = 320
 private const val RENDER_DEBOUNCE_MS = 90L
 
-private fun renderBackdrop(screen: IntSize, accent: Int): Bitmap {
+private fun renderBackdrop(screen: IntSize, accent: Int, base: Int): Bitmap {
     val scale = minOf(1f, MAX_RENDER_WIDTH.toFloat() / screen.width)
     val w = (screen.width * scale).toInt().coerceAtLeast(1)
     val h = (screen.height * scale).toInt().coerceAtLeast(1)
     val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    val base = Palette.Background.toArgb()
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
 
     canvas.drawColor(base)
