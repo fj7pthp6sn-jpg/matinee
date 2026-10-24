@@ -1,0 +1,98 @@
+import java.util.Properties
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+android {
+    namespace = "com.tcltv.sahne"
+    compileSdk = 35
+    buildToolsVersion = "35.0.0"
+    ndkVersion = "29.0.14206865"
+
+    defaultConfig {
+        applicationId = "com.yigitcan.matinee"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 20
+        versionName = "1.5.5"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    // The AirPlay receiver is UxPlay's protocol library (C); see app/src/main/cpp/uxplay/SOURCE.txt.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.6"
+        }
+    }
+
+    // The Play upload key lives outside the project so it can never be committed or shared with the source.
+    val uploadKeyFile = File(System.getProperty("user.home"), ".matinee-signing/keystore.properties")
+    signingConfigs {
+        // A fixed debug key shared by every build, so a new debug APK installs over the previous one
+        // instead of failing with a signature mismatch (CI would otherwise generate a fresh key each run).
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+        if (uploadKeyFile.isFile) {
+            val props = Properties().apply { uploadKeyFile.inputStream().use(::load) }
+            create("upload") {
+                storeFile = File(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Without the key the release is left unsigned, which neither installs nor uploads.
+            signingConfig = signingConfigs.findByName("upload")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+    }
+
+    // The in-app language switch needs every language on the device, so Play must not split by language.
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+}

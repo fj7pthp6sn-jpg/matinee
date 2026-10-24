@@ -1,0 +1,450 @@
+package com.tcltv.sahne.ui.home
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.tcltv.sahne.LauncherViewModel
+import com.tcltv.sahne.R
+import com.tcltv.sahne.data.AppCatalog
+import com.tcltv.sahne.data.CardTheme
+import com.tcltv.sahne.data.HdmiInput
+import com.tcltv.sahne.data.LiveTvInput
+import com.tcltv.sahne.data.LastPlayed
+import com.tcltv.sahne.data.LaunchableApp
+import com.tcltv.sahne.data.LauncherSettings
+import com.tcltv.sahne.ui.GlassStyle
+import com.tcltv.sahne.ui.LocalReduceMotion
+import com.tcltv.sahne.ui.Palette
+import com.tcltv.sahne.ui.TintedIcon
+import com.tcltv.sahne.ui.focusSheen
+import com.tcltv.sahne.ui.glass
+import com.tcltv.sahne.ui.interStyle
+import com.tcltv.sahne.ui.rememberFocusSheen
+
+private const val COLUMNS = 6
+private const val TILE_RADIUS = 14
+private const val GRID_SIDE = 48
+// Shared by the shelf's inner padding and the grid rows, so shelf tiles line up with the grid columns below.
+private const val ROW_INSET = 12
+// Pushes the shelf to the lower part of the screen so the hero has room above it and the first grid row peeks below.
+private const val HERO_SPACE = 105
+
+/** Bottom of the hero area in screen dp: top bar padding + list top padding + [HERO_SPACE]. */
+internal const val GRID_HERO_BOTTOM = 80 + 14 + HERO_SPACE
+
+/**
+ * Android TV's default bring-into-view pivots the focused item to a fixed height, so the first move along the shelf
+ * jumped the whole page up. This scrolls only as far as needed to show the focused item, plus a margin so the last
+ * row doesn't end flush with the screen edge.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private val MinimalBringIntoView = object : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val margin = SCROLL_MARGIN_PX.coerceAtMost((containerSize - size) / 2).coerceAtLeast(0f)
+        return when {
+            offset < margin -> offset - margin
+            offset + size > containerSize - margin -> offset + size - (containerSize - margin)
+            else -> 0f
+        }
+    }
+}
+
+private const val SCROLL_MARGIN_PX = 64f
+
+private data class GridFocusRequest(val packageName: String?, val nonce: Int)
+
+/**
+ * Favorites shelf above a grid of the home apps. The shelf holds the first [COLUMNS] apps in the user's order,
+ * so moving an app into the first places puts it on the shelf.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun GridHome(
+    viewModel: LauncherViewModel,
+    apps: List<LaunchableApp>,
+    allApps: List<LaunchableApp>,
+    liveTv: List<LiveTvInput>,
+    inputs: List<HdmiInput>,
+    settings: LauncherSettings,
+    lastPlayed: Map<String, LastPlayed>,
+    resumeTick: Int,
+    onOpenSettings: () -> Unit,
+    menu: AppMenuState,
+    onOpenMenu: (LaunchableApp) -> Unit,
+) {
+    var selectedPackage by remember { mutableStateOf<String?>(null) }
+    var liftedPackage by remember { mutableStateOf<String?>(null) }
+    var focusRequest by remember { mutableStateOf(GridFocusRequest(null, 0)) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var shelfFocused by remember { mutableStateOf(true) }
+    var gridFocused by remember { mutableStateOf(true) }
+    val listState = rememberLazyListState()
+    val infoContext = androidx.compose.ui.platform.LocalContext.current
+    val showPrayer = remember(resumeTick) { com.tcltv.sahne.info.InfoPrefs.showPrayer(infoContext) }
+    val showMatches = remember(resumeTick) { com.tcltv.sahne.info.InfoPrefs.showMatches(infoContext) }
+    // Read only in graphicsLayer and a derived flag, so the fade redraws the hero instead of recomposing the grid.
+    val heroAlpha = animateFloatAsState(
+        targetValue = if (shelfFocused) 1f else 0f,
+        animationSpec = if (LocalReduceMotion.current) snap() else tween(350),
+        label = "heroAlpha",
+    )
+
+    val current = apps.firstOrNull { it.packageName == selectedPackage } ?: apps.firstOrNull()
+    val accent = if (settings.adaptiveBackground && current != null) Color(current.accent) else NeutralAccent
+    val heroVisible by remember { derivedStateOf { heroAlpha.value > 0f } }
+    val hiddenApps = remember(allApps, settings) { allApps.filter { AppCatalog.isHidden(it, settings) } }
+
+    fun requestFocus(packageName: String?) {
+        if (packageName != null) focusRequest = GridFocusRequest(packageName, focusRequest.nonce + 1)
+    }
+    LaunchedEffect(resumeTick, apps.isNotEmpty()) { requestFocus(current?.packageName) }
+    // "Move" in the long-press menu lifts the card, exactly as holding OK on it used to.
+    LaunchedEffect(menu.moveRequest) {
+        menu.moveRequest?.let {
+            liftedPackage = it
+            requestFocus(it)
+            menu.moveRequest = null
+        }
+    }
+    // A moved card is recomposed at its new place (often in another row), so focus is handed to it once the order lands.
+    LaunchedEffect(apps) { liftedPackage?.let(::requestFocus) }
+    BackHandler(enabled = liftedPackage != null) { liftedPackage = null }
+    // Coming back up to the shelf restores the full hero; going down into the grid lifts the shelf under the top bar
+    // so the rows get the room the fading hero leaves. Focus on the top bar moves neither.
+    LaunchedEffect(shelfFocused, gridFocused) {
+        when {
+            shelfFocused -> listState.animateScrollToItem(0)
+            gridFocused && listState.firstVisibleItemIndex == 0 -> listState.animateScrollToItem(1)
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        CinematicBackground(accent)
+        if (current != null && heroVisible) {
+            val hasAccess = remember(resumeTick) { viewModel.hasNotificationAccess() }
+            val lastOpened = remember(resumeTick, current.packageName) { com.tcltv.sahne.info.LastLaunch.get(infoContext, current.packageName) }
+            val heroHint = when {
+                !hasAccess -> stringResource(R.string.hero_hint_no_access)
+                lastOpened > 0L -> stringResource(R.string.hero_last_opened, formatLastOpened(lastOpened))
+                lastPlayed.isEmpty() -> stringResource(R.string.hero_hint_empty)
+                else -> null
+            }
+            GridHero(current, lastPlayed[current.packageName], viewModel, Modifier.graphicsLayer { alpha = heroAlpha.value }, heroHint)
+        }
+        TopBar(viewModel, onOpenSettings, Modifier.padding(start = GRID_SIDE.dp, end = GRID_SIDE.dp, top = 30.dp))
+
+        val shelf = apps.take(COLUMNS)
+        // Null marks the add-app tile, shown only when there are apps left to add.
+        val cells: List<LaunchableApp?> = apps.drop(COLUMNS) + if (hiddenApps.isNotEmpty()) listOf(null) else emptyList()
+        val visibleInputs = (if (settings.hideDisconnectedInputs) inputs.filter { it.connected } else inputs)
+            .takeIf { settings.showInputs }.orEmpty()
+        val visibleLiveTv = liveTv.takeIf { settings.showInputs }.orEmpty()
+
+        @Composable
+        fun Cell(app: LaunchableApp?, isRowEnd: Boolean) {
+            if (app == null) {
+                AddTile(enabled = liftedPackage == null, isRowEnd = isRowEnd, onClick = { showAddDialog = true })
+            } else {
+                GridTile(
+                    app = app,
+                    cardTheme = settings.cardTheme,
+                    lifted = app.packageName == liftedPackage,
+                    isRowEnd = isRowEnd,
+                    dimmed = liftedPackage != null && app.packageName != liftedPackage,
+                    focusRequest = focusRequest,
+                    onFocusRequestHandled = { focusRequest = focusRequest.copy(packageName = null) },
+                    onFocused = { selectedPackage = app.packageName },
+                    onClick = {
+                        when (liftedPackage) {
+                            null -> viewModel.launchApp(app)
+                            app.packageName -> liftedPackage = null
+                        }
+                    },
+                    onLongPress = { if (liftedPackage == null) onOpenMenu(app) },
+                    onMove = { delta -> viewModel.moveApp(app.packageName, delta) },
+                )
+            }
+        }
+
+        CompositionLocalProvider(LocalBringIntoViewSpec provides MinimalBringIntoView) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(top = 80.dp).onFocusChanged { gridFocused = it.hasFocus },
+                contentPadding = PaddingValues(start = GRID_SIDE.dp, end = GRID_SIDE.dp, top = 14.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item(key = "heroSpace") { Spacer(Modifier.height(HERO_SPACE.dp)) }
+                item(key = "shelf") {
+                    Column(Modifier.onFocusChanged { shelfFocused = it.hasFocus }) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .glass(RoundedCornerShape(30.dp), GlassStyle.Panel)
+                                .padding(start = ROW_INSET.dp, end = ROW_INSET.dp, top = 16.dp, bottom = 8.dp),
+                        ) {
+                            CellRow(shelf) { app, isRowEnd -> Cell(app, isRowEnd) }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        BasicText(
+                            stringResource(R.string.grid_favorites_hint),
+                            style = interStyle(11.sp, 500, Palette.TextMuted),
+                            modifier = Modifier.padding(start = ROW_INSET.dp),
+                        )
+                    }
+                }
+                if (showPrayer) {
+                    item(key = "prayer") {
+                        PrayerStrip(settings.weatherLocation, resumeTick, Modifier.padding(horizontal = ROW_INSET.dp))
+                    }
+                }
+                if (showMatches) {
+                    item(key = "matches") {
+                        MatchesCard(resumeTick, Modifier.padding(horizontal = ROW_INSET.dp))
+                    }
+                }
+                itemsIndexed(cells.chunked(COLUMNS), key = { index, _ -> "row$index" }) { _, row ->
+                    CellRow(row, Modifier.padding(horizontal = ROW_INSET.dp)) { app, isRowEnd -> Cell(app, isRowEnd) }
+                }
+            }
+        }
+
+        // HDMI inputs and Live TV sit top-left, right under the clock and date.
+        if (visibleLiveTv.isNotEmpty() || visibleInputs.isNotEmpty()) {
+            Row(
+                Modifier.padding(start = GRID_SIDE.dp, top = 68.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                visibleLiveTv.forEachIndexed { index, input ->
+                    LiveTvChip(
+                        input,
+                        showLabel = visibleLiveTv.size > 1,
+                        enabled = liftedPackage == null,
+                        isLast = visibleInputs.isEmpty() && index == visibleLiveTv.lastIndex,
+                    ) { viewModel.openLiveTv(input) }
+                }
+                visibleInputs.forEachIndexed { index, input ->
+                    InputChip(input, enabled = liftedPackage == null, isLast = index == visibleInputs.lastIndex) {
+                        viewModel.openInput(input)
+                    }
+                }
+            }
+        }
+
+        if (liftedPackage != null) {
+            MoveToolbar(Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp))
+        }
+    }
+
+    if (showAddDialog) {
+        AddAppDialog(
+            hiddenApps = hiddenApps,
+            onAdd = { app ->
+                viewModel.toggleHidden(app.packageName)
+                showAddDialog = false
+                requestFocus(app.packageName)
+            },
+            onDismiss = { showAddDialog = false },
+        )
+    }
+}
+
+/** Always [COLUMNS] equal slots, so a short last row keeps the same tile size as full rows. */
+@Composable
+private fun CellRow(cells: List<LaunchableApp?>, modifier: Modifier = Modifier, cell: @Composable (LaunchableApp?, Boolean) -> Unit) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        for (index in 0 until COLUMNS) {
+            Box(Modifier.weight(1f)) {
+                if (index < cells.size) key(cells[index]?.packageName ?: "add") { cell(cells[index], index == cells.lastIndex) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GridTile(
+    app: LaunchableApp,
+    cardTheme: CardTheme,
+    lifted: Boolean,
+    isRowEnd: Boolean,
+    dimmed: Boolean,
+    focusRequest: GridFocusRequest,
+    onFocusRequestHandled: () -> Unit,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    onMove: (Int) -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    var swallowKeyUp by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(focusRequest) {
+        if (focusRequest.packageName == app.packageName) {
+            runCatching { focusRequester.requestFocus() }
+            onFocusRequestHandled()
+        }
+    }
+    val shape = RoundedCornerShape(TILE_RADIUS.dp)
+    val active = focused || lifted
+    val sheen = rememberFocusSheen(active)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .scaleBy(focusScale(active, if (lifted) 1.14f else 1.1f))
+                .shadow(if (active) 18.dp else 0.dp, shape)
+                .clip(shape)
+                .background(if (cardTheme == CardTheme.LIGHT) CardLight else CardDark)
+                // Scale alone is too subtle from across the room, so focus also lights a bright rim and a sheen.
+                .focusSheen(sheen, shape)
+                .then(if (active) Modifier else Modifier.border(1.dp, Color.White.copy(alpha = if (dimmed) 0.05f else 0.14f), shape))
+                .focusRequester(focusRequester)
+                .onFocusChanged {
+                    focused = it.isFocused
+                    if (it.isFocused) onFocused()
+                }
+                // A lifted tile still moves right into the next row; only plain focus is kept from escaping to the top bar.
+                .blockRightExit(isRowEnd && !lifted)
+                .onPreviewKeyEvent { event ->
+                    when {
+                        event.isCenter() && event.type == KeyEventType.KeyDown && event.nativeKeyEvent.repeatCount > 0 -> {
+                            if (!swallowKeyUp) onLongPress()
+                            swallowKeyUp = true
+                            true
+                        }
+                        event.isCenter() && event.type == KeyEventType.KeyUp && swallowKeyUp -> {
+                            swallowKeyUp = false
+                            true
+                        }
+                        lifted && event.type == KeyEventType.KeyDown -> when (event.key) {
+                            Key.DirectionLeft -> { onMove(-1); true }
+                            Key.DirectionRight -> { onMove(1); true }
+                            Key.DirectionUp -> { onMove(-COLUMNS); true }
+                            Key.DirectionDown -> { onMove(COLUMNS); true }
+                            else -> false
+                        }
+                        else -> false
+                    }
+                }
+                .semantics { contentDescription = app.label }
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            CardArt(app, cardTheme)
+        }
+        Box(Modifier.height(22.dp).padding(top = 7.dp), contentAlignment = Alignment.Center) {
+            if (active) {
+                BasicText(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = interStyle(11.sp, 600))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddTile(enabled: Boolean, isRowEnd: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(TILE_RADIUS.dp)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .scaleBy(focusScale(focused, 1.1f))
+                .glass(shape, if (focused) GlassStyle.Lit else GlassStyle.Pill)
+                .blockRightExit(isRowEnd)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(enabled = enabled, interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(24.dp).background(Color.White.copy(alpha = 0.14f), CircleShape), contentAlignment = Alignment.Center) {
+                TintedIcon(R.drawable.ic_plus, 12.dp, Color.White)
+            }
+        }
+        Box(Modifier.height(22.dp).padding(top = 7.dp), contentAlignment = Alignment.Center) {
+            if (focused) BasicText(stringResource(R.string.add_app), maxLines = 1, style = interStyle(11.sp, 600))
+        }
+    }
+}
+
+@Composable
+private fun MoveToolbar(modifier: Modifier) {
+    Row(
+        modifier
+            .height(37.dp)
+            .glass(CircleShape, GlassStyle.Dense)
+            .padding(horizontal = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ToolbarHint("◀▶▲▼", stringResource(R.string.edit_hint_move))
+        ToolbarDot()
+        ToolbarHint(stringResource(R.string.key_ok), stringResource(R.string.edit_hint_drop))
+        ToolbarDot()
+        ToolbarHint(stringResource(R.string.key_back), stringResource(R.string.edit_hint_done))
+    }
+}
+
+/** "Today 21:40" for today, otherwise "12 Oct 21:40", in the TV's language. */
+private fun formatLastOpened(ms: Long): String {
+    val zone = java.time.ZoneId.systemDefault()
+    val moment = java.time.Instant.ofEpochMilli(ms).atZone(zone)
+    val time = moment.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    return if (moment.toLocalDate() == java.time.LocalDate.now(zone)) time
+    else moment.format(java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm", java.util.Locale.getDefault()))
+}
