@@ -6,14 +6,27 @@ import android.app.PendingIntent
 import android.app.role.RoleManager
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.graphics.BitmapFactory
+import android.util.Log
 import android.util.LruCache
 import androidx.compose.ui.graphics.asImageBitmap
+import com.tcltv.sahne.data.KeyAction
+import com.tcltv.sahne.data.KeyBinding
+import com.tcltv.sahne.data.KeyBindingStore
+import com.tcltv.sahne.data.PressType
+import com.tcltv.sahne.system.BackgroundApps
+import com.tcltv.sahne.system.HomeKeyGuard
+import com.tcltv.sahne.system.InputSwitcher
+import com.tcltv.sahne.system.HomeKeyWatchdog
+import com.tcltv.sahne.system.LocalAdb
+import com.tcltv.sahne.update.SelfUpdate
+import com.tcltv.sahne.update.SelfUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.provider.Settings
@@ -25,10 +38,13 @@ import com.tcltv.sahne.data.AppCatalog
 import com.tcltv.sahne.data.UserImages
 import com.tcltv.sahne.data.HomeApps
 import com.tcltv.sahne.data.FolderEdits
+import com.tcltv.sahne.airplay.AirPlayReceiver
 import com.tcltv.sahne.airplay.AirPlayService
+import com.tcltv.sahne.airplay.AirPlayState
 import com.tcltv.sahne.data.ImageImport
 import com.tcltv.sahne.data.PhotoWallpaper
 import com.tcltv.sahne.data.PickedImage
+import com.tcltv.sahne.data.PinKind
 import com.tcltv.sahne.data.AppOverride
 import com.tcltv.sahne.data.BuiltinWallpaper
 import com.tcltv.sahne.data.ResolvedWallpaper
@@ -112,6 +128,36 @@ sealed interface Notice {
     ) : Notice
 
     data class MemoryHigh(override val id: String, override val time: Long, val percent: Int, val threshold: Int) : Notice
+
+    /** A newer Matinee on GitHub; only the GitHub build ever has one. */
+    data class AppUpdate(val update: SelfUpdate) : Notice {
+        override val id: String get() = "self-update:${update.version}"
+        override val time: Long get() = update.publishedAt
+    }
+}
+
+/** Why the Home button no longer opens Matinee although the user turned it on. */
+enum class HomeKeyProblem {
+    /** Still switched on, but Android stopped the service and won't start it again. */
+    STOPPED,
+
+    /** Taken off Android's list of enabled services without the user. */
+    SWITCHED_OFF,
+}
+
+sealed interface BackgroundAppsState {
+    data object Loading : BackgroundAppsState
+
+    /** The list comes from Automatic ADB, which isn't set up or reachable. */
+    data object NeedsAdb : BackgroundAppsState
+    data class Ready(val apps: List<LaunchableApp>) : BackgroundAppsState
+}
+
+sealed interface AdbSetupState {
+    data object Idle : AdbSetupState
+    data object Connecting : AdbSetupState
+    data object Ready : AdbSetupState
+    data class Failed(val reason: LocalAdb.SetupResult) : AdbSetupState
 }
 
 sealed interface SpeedState {
@@ -142,6 +188,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val networkStatus = NetworkStatus(application)
     private val speedTest = SpeedTest()
     private val mediaHistory = MediaHistory.get(application)
+    private val homeKeyGuard = HomeKeyGuard(application)
+    private val localAdb = LocalAdb(application)
+    private val keyBindingStore = KeyBindingStore(application)
+    private val backgroundApps = BackgroundApps(localAdb, application.packageName)
+    private val inputSwitcher = InputSwitcher(application, localAdb)
 
     val settings: StateFlow<LauncherSettings> = settingsStore.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, LauncherSettings())
@@ -235,8 +286,21 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // Bumped on every resume: notification access or the receiver app may have changed while away.
     private val receiverRefresh = MutableStateFlow(0)
 
+    /**
+     * Matinee's own receiver when it is on, otherwise the TV's built-in one: with ours running, the TV can take AirPlay
+     * even if the maker left it out.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val airPlay: StateFlow<ReceiverStatus> = receiverRefresh.flatMapLatest { airPlayMonitor.status }
+    val airPlay: StateFlow<ReceiverStatus> = combine(
+        receiverRefresh.flatMapLatest { airPlayMonitor.status },
+        AirPlayReceiver.get(application).state,
+    ) { builtIn, own ->
+        when (own) {
+            AirPlayState.MIRRORING -> ReceiverStatus(ReceiverState.PLAYING, canDetectPlayback = true)
+            AirPlayState.READY -> ReceiverStatus(ReceiverState.READY, canDetectPlayback = true)
+            AirPlayState.OFF, AirPlayState.FAILED -> builtIn
+        }
+    }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ReceiverStatus(ReceiverState.UNAVAILABLE, canDetectPlayback = false))
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -244,8 +308,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         .stateIn(viewModelScope, SharingStarted.Eagerly, ReceiverStatus(ReceiverState.UNAVAILABLE, canDetectPlayback = false))
 
     /** Last played item per package, empty when the user turned the feature off. */
-    val lastPlayed: StateFlow<Map<String, LastPlayed>> = combine(mediaHistory.entries, settings) { entries, s ->
-        if (s.showLastPlayed) entries else emptyMap()
+    private val watchNext = MutableStateFlow<Map<String, LastPlayed>>(emptyMap())
+
+    /** Re-reads the TV's "Watch next" list (what Netflix, Prime and others left halfway). */
+    fun refreshWatchNext() {
+        viewModelScope.launch(Dispatchers.IO) { watchNext.value = com.tcltv.sahne.data.WatchNext.read(getApplication()) }
+    }
+
+    val lastPlayed: StateFlow<Map<String, LastPlayed>> = combine(mediaHistory.entries, watchNext, settings) { entries, next, s ->
+        // Per app, whichever of the media session and the Watch-next list is newer wins.
+        if (s.showLastPlayed) (entries.keys + next.keys).associateWith { pkg ->
+            val a = entries[pkg]
+            val b = next[pkg]
+            if (a == null) b!! else if (b == null) a else if (b.updatedAt > a.updatedAt) b else a
+        } else emptyMap()
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     fun clearMediaHistory() = mediaHistory.clear()
@@ -253,7 +329,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     val liveTvInputs: StateFlow<List<LiveTvInput>> = liveTvCatalog.tuners
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    fun openLiveTv(input: LiveTvInput) = startSafely(liveTvCatalog.tunerIntent(input))
+    fun openLiveTv(input: LiveTvInput) = switchTo(liveTvCatalog.tunerIntent(input))
 
     // The panel, its mini items and the grid hero show the same files, and focus moves ask again each time.
     private val artworkCache = object : LruCache<String, ImageBitmap>(ARTWORK_CACHE_BYTES) {
@@ -337,9 +413,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val dismissedNotices = MutableStateFlow<Set<String>>(emptySet())
     private val seenNotices = MutableStateFlow<Set<String>>(emptySet())
 
-    val notices: StateFlow<List<Notice>> = combine(PlayStoreUpdates.updates, localNotices, dismissedNotices, settings) { play, local, dismissed, s ->
+    val notices: StateFlow<List<Notice>> = combine(
+        PlayStoreUpdates.updates,
+        SelfUpdater.update,
+        localNotices,
+        dismissedNotices,
+        settings,
+    ) { play, self, local, dismissed, s ->
         val playNotices = if (s.showPlayUpdates) play.map { Notice.PlayUpdate(it) } else emptyList()
-        (playNotices + local).filter { it.id !in dismissed }.sortedByDescending { it.time }
+        val selfNotice = listOfNotNull(self?.let { Notice.AppUpdate(it) })
+        (selfNotice + playNotices + local).filter { it.id !in dismissed }.sortedByDescending { it.time }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val unreadNotices: StateFlow<Int> = combine(notices, seenNotices) { list, seen -> list.count { it.id !in seen } }
@@ -349,12 +432,112 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch { runWeatherLoop() }
         viewModelScope.launch { watchForNewDevices() }
         viewModelScope.launch { runAirPlayReceiver() }
+        if (localAdb.isSetUp()) HomeKeyWatchdog.schedule(application)
+    }
+
+    private val _settingsRequested = MutableStateFlow(false)
+
+    /** Set when a remote key asked for Matinee's settings; the screen opens them (behind the PIN) and clears it. */
+    val settingsRequested: StateFlow<Boolean> = _settingsRequested.asStateFlow()
+
+    fun requestSettings() {
+        _settingsRequested.value = true
+    }
+
+    fun consumeSettingsRequest() {
+        _settingsRequested.value = false
+    }
+
+    private val _keyBindings = MutableStateFlow(keyBindingStore.load())
+    val keyBindings: StateFlow<List<KeyBinding>> = _keyBindings.asStateFlow()
+
+    /** Gives [keyCode] an action for one kind of press, or with null returns that press to the key's own behaviour. */
+    fun setKeyAction(keyCode: Int, press: PressType, action: KeyAction?) {
+        val current = _keyBindings.value.firstOrNull { it.keyCode == keyCode }?.actions.orEmpty()
+        val actions = if (action == null) current - press else current + (press to action)
+        saveKeyBindings(_keyBindings.value.filterNot { it.keyCode == keyCode } + KeyBinding(keyCode, actions))
+    }
+
+    fun removeKeyBinding(keyCode: Int) = saveKeyBindings(_keyBindings.value.filterNot { it.keyCode == keyCode })
+
+    private fun saveKeyBindings(bindings: List<KeyBinding>) {
+        val kept = bindings.filter { it.actions.isNotEmpty() }
+        try {
+            keyBindingStore.save(kept)
+        } catch (e: IOException) {
+            Log.w(TAG, "could not save key bindings: ${e.message}")
+            return
+        }
+        _keyBindings.value = kept
+        // The service caches the file; tell it there is a new one.
+        getApplication<Application>().sendBroadcast(
+            Intent(HomeKeyService.ACTION_BINDINGS_CHANGED).setPackage(getApplication<Application>().packageName),
+        )
+    }
+
+    /** Asks the Home button service to report the next remote key instead of acting on it. */
+    fun startKeyLearning() {
+        getApplication<Application>().sendBroadcast(
+            Intent(HomeKeyService.ACTION_LEARN_KEY).setPackage(getApplication<Application>().packageName),
+        )
+    }
+
+    private val _backgroundApps = MutableStateFlow<BackgroundAppsState>(BackgroundAppsState.Loading)
+    val backgroundAppsState: StateFlow<BackgroundAppsState> = _backgroundApps.asStateFlow()
+
+    /** Looks up which apps are still running; the shell commands block on a socket, so this runs off the main thread. */
+    fun refreshBackgroundApps() {
+        viewModelScope.launch {
+            val candidates = allApps.value.filter { it.folderId == null }.associateBy { it.packageName }
+            val running = withContext(Dispatchers.IO) { backgroundApps.running(candidates.keys) }
+            _backgroundApps.value = if (running == null) {
+                BackgroundAppsState.NeedsAdb
+            } else {
+                BackgroundAppsState.Ready(running.mapNotNull { candidates[it] }.sortedBy { it.label.lowercase() })
+            }
+        }
+    }
+
+    /** Closes one app, or with null all of those listed except the ones the user keeps out of cleanups. */
+    fun closeBackgroundApp(app: LaunchableApp?) {
+        val state = _backgroundApps.value as? BackgroundAppsState.Ready ?: return
+        val targets = if (app != null) {
+            listOf(app)
+        } else {
+            state.apps.filter { it.packageName !in settings.value.memoryCleanExclusions }
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { targets.forEach { backgroundApps.close(it.packageName) } }
+            // The system takes a moment to drop a stopped app's processes.
+            delay(CLOSE_SETTLE_MILLIS)
+            refreshBackgroundApps()
+            updateMemory(memoryStatus.snapshot())
+        }
+    }
+
+    private val _adbSetup = MutableStateFlow<AdbSetupState>(if (localAdb.isSetUp()) AdbSetupState.Ready else AdbSetupState.Idle)
+    val adbSetup: StateFlow<AdbSetupState> = _adbSetup.asStateFlow()
+
+    fun runAdbSetup() {
+        if (_adbSetup.value == AdbSetupState.Connecting) return
+        _adbSetup.value = AdbSetupState.Connecting
+        viewModelScope.launch {
+            val result = localAdb.setUp()
+            if (result == LocalAdb.SetupResult.DONE) {
+                HomeKeyWatchdog.schedule(getApplication())
+                homeKeyGuard.repairIfNeeded()
+            }
+            _adbSetup.value = when (result) {
+                LocalAdb.SetupResult.DONE -> AdbSetupState.Ready
+                else -> AdbSetupState.Failed(result)
+            }
+        }
     }
 
     // A foreground service, so the receiver outlives this screen: phones can only find the TV while it runs.
     private suspend fun runAirPlayReceiver() {
         settings.map { it.airplayReceiver }.distinctUntilChanged().collect { enabled ->
-            AirPlayService.setRunning(getApplication(), enabled, AIRPLAY_NAME)
+            AirPlayService.setRunning(getApplication(), enabled, AirPlayService.receiverName(getApplication()))
         }
     }
 
@@ -438,8 +621,35 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             is Notice.NewDevice -> inputs.value.firstOrNull { it.id == notice.inputId }?.let(::openInput)
             is Notice.MemoryHigh -> cleanMemory()
+            is Notice.AppUpdate -> {
+                // Kept in the list, so its progress and any failure stay visible.
+                viewModelScope.launch {
+                    SelfUpdater.install(getApplication())
+                    // With Automatic ADB the permission is given on the spot; only without it does the user need the page.
+                    if (SelfUpdater.update.value?.stage == SelfUpdate.Stage.NEEDS_PERMISSION) openInstallPermissionSettings()
+                }
+                return
+            }
         }
         dismissedNotices.value = dismissedNotices.value + notice.id
+    }
+
+    /**
+     * Play's "Manage apps & games" page, where pending updates are listed. Play tells other apps nothing about pending
+     * updates unless it posts a notification, so the panel links here instead of counting them.
+     */
+    fun openPlayUpdates() {
+        val intent = Intent(PLAY_MY_DOWNLOADS)
+            .setPackage(TvNotificationListener.PLAY_STORE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!startSafely(intent)) openPlayStore()
+    }
+
+    /** Android's "install unknown apps" page for Matinee; TVs without it fall back to their main settings. */
+    private fun openInstallPermissionSettings() {
+        val app = getApplication<Application>()
+        val page = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.fromParts("package", app.packageName, null))
+        if (!startSafely(page.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))) openSystemSettings(Settings.ACTION_SETTINGS)
     }
 
     private fun openPlayStore(): Boolean {
@@ -482,12 +692,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         return source == PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE || source == PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE
     }
 
-    fun isHomeKeyServiceEnabled(): Boolean {
-        val app = getApplication<Application>()
-        val component = ComponentName(app, HomeKeyService::class.java).flattenToString()
-        val enabled = Settings.Secure.getString(app.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
-        return enabled.split(':').any { it.equals(component, ignoreCase = true) }
-    }
+    fun isHomeKeyServiceEnabled(): Boolean = homeKeyGuard.isEnabled()
+
+    /**
+     * Whether Android has the Home button service running. It can be switched on and still stopped: Android doesn't
+     * restart an accessibility service whose process died until it is switched off and on again.
+     */
+    fun isHomeKeyServiceRunning(): Boolean = homeKeyGuard.isRunning()
+
+    /** The home screen told the user the Home button stopped and they closed it; it isn't repeated this session. */
+    var homeKeyStoppedPromptDismissed = false
+
+    /** What keeps the Home button from opening Matinee after the user turned it on, or null when nothing does. */
+    fun homeKeyProblem(): HomeKeyProblem? = homeKeyGuard.problem()
+
+    /** The user doesn't want the Home button back; stop asking until it runs again. */
+    fun forgetHomeKey() = homeKeyGuard.forget()
+
+    /** With Automatic ADB set up, Matinee switches the Home button service itself instead of sending the user away. */
+    fun canSwitchHomeKey(): Boolean = homeKeyGuard.canSwitch()
+
+    /** Turns the Home button service on (or restarts a stopped one); false when only the TV's settings can. */
+    suspend fun switchHomeKeyOn(): Boolean = homeKeyGuard.switchOn()
+
+    fun switchHomeKeyOff(): Boolean = homeKeyGuard.switchOff()
 
     fun hasNotificationAccess(): Boolean {
         val app = getApplication<Application>()
@@ -518,7 +746,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun onHomeResumed() {
+        refreshWatchNext()
         receiverRefresh.value++
+        // With Automatic ADB set up, a stopped or switched-off Home button is turned back on without asking.
+        viewModelScope.launch { homeKeyGuard.repairIfNeeded() }
+        viewModelScope.launch { SelfUpdater.checkIfDue(getApplication()) }
         updateMemory(memoryStatus.snapshot())
         memoryPollJob?.cancel()
         memoryPollJob = viewModelScope.launch {
@@ -615,7 +847,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun openInput(input: HdmiInput) = startSafely(inputCatalog.launchIntent(input.id))
+    fun openInput(input: HdmiInput) = switchTo(inputCatalog.launchIntent(input.id))
+
+    /** Switching can wait on adb when the TV can't open the input itself, so it never runs on the main thread. */
+    private fun switchTo(intent: Intent) {
+        viewModelScope.launch(Dispatchers.IO) { inputSwitcher.open(intent) }
+    }
 
     fun openAppInfo(app: LaunchableApp) = startSafely(
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.packageName, null))
@@ -782,8 +1019,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         customizeLock.withLock { setFolders(FolderEdits.rename(settings.first().folders, folderId, name)) }
     }
 
-    fun setPin(pin: String) {
-        viewModelScope.launch { gate.setPin(pin) }
+    fun setPin(pin: String, kind: PinKind) {
+        viewModelScope.launch { gate.setPin(pin, kind) }
     }
 
     fun removePin() {
@@ -796,13 +1033,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private companion object {
+        const val TAG = "LauncherViewModel"
+        const val CLOSE_SETTLE_MILLIS = 600L
+        // Play's own action for its "Manage apps & games" page; checked on Play Store for Google TV (Android 14).
+        const val PLAY_MY_DOWNLOADS = "com.google.android.finsky.VIEW_MY_DOWNLOADS"
         const val MEMORY_POLL_MILLIS = 15_000L
         const val SEARCH_DEBOUNCE_MILLIS = 400L
         const val SPEED_CACHE_MILLIS = 5 * 60_000L
         const val ARTWORK_CACHE_BYTES = 6 * 1024 * 1024
         const val ICON_MAX_SIDE = 640
         const val WALLPAPER_MAX_SIDE = 2560
-        const val AIRPLAY_NAME = "Matinee"
         const val WEATHER_RETRY_MILLIS = 60_000L
         const val MEMORY_ALERT_REARM_PERCENT = 5
         const val MAX_LOCAL_NOTICES = 20

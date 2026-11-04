@@ -72,6 +72,7 @@ import com.tcltv.sahne.ui.GlassStyle
 import com.tcltv.sahne.ui.LocalReduceMotion
 import com.tcltv.sahne.ui.Palette
 import com.tcltv.sahne.ui.TintedIcon
+import com.tcltv.sahne.ui.appCardFocus
 import com.tcltv.sahne.ui.focusSheen
 import com.tcltv.sahne.ui.glass
 import com.tcltv.sahne.ui.interStyle
@@ -137,7 +138,6 @@ internal fun GridHome(
     val listState = rememberLazyListState()
     val infoContext = androidx.compose.ui.platform.LocalContext.current
     val showPrayer = remember(resumeTick) { com.tcltv.sahne.info.InfoPrefs.showPrayer(infoContext) }
-    val showMatches = remember(resumeTick) { com.tcltv.sahne.info.InfoPrefs.showMatches(infoContext) }
     // Read only in graphicsLayer and a derived flag, so the fade redraws the hero instead of recomposing the grid.
     val heroAlpha = animateFloatAsState(
         targetValue = if (shelfFocused) 1f else 0f,
@@ -190,8 +190,8 @@ internal fun GridHome(
         TopBar(viewModel, onOpenSettings, Modifier.padding(start = GRID_SIDE.dp, end = GRID_SIDE.dp, top = 30.dp))
 
         val shelf = apps.take(COLUMNS)
-        // Null marks the add-app tile, shown only when there are apps left to add.
-        val cells: List<LaunchableApp?> = apps.drop(COLUMNS) + if (hiddenApps.isNotEmpty()) listOf(null) else emptyList()
+        // Null marks the add-app tile, shown only when there are apps left to add and the user hasn't turned it off.
+        val cells: List<LaunchableApp?> = apps.drop(COLUMNS) + if (hiddenApps.isNotEmpty() && settings.showAddTile) listOf(null) else emptyList()
         val visibleInputs = (if (settings.hideDisconnectedInputs) inputs.filter { it.connected } else inputs)
             .takeIf { settings.showInputs }.orEmpty()
         val visibleLiveTv = liveTv.takeIf { settings.showInputs }.orEmpty()
@@ -240,22 +240,20 @@ internal fun GridHome(
                         ) {
                             CellRow(shelf) { app, isRowEnd -> Cell(app, isRowEnd) }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        BasicText(
-                            stringResource(R.string.grid_favorites_hint),
-                            style = interStyle(11.sp, 500, Palette.TextMuted),
-                            modifier = Modifier.padding(start = ROW_INSET.dp),
-                        )
+                        // The hint is about the apps below the shelf; with none there it would point at nothing.
+                        if (cells.any { it != null }) {
+                            Spacer(Modifier.height(8.dp))
+                            BasicText(
+                                stringResource(R.string.grid_favorites_hint),
+                                style = interStyle(11.sp, 500, Palette.TextMuted),
+                                modifier = Modifier.padding(start = ROW_INSET.dp),
+                            )
+                        }
                     }
                 }
                 if (showPrayer) {
                     item(key = "prayer") {
                         PrayerStrip(settings.weatherLocation, resumeTick, Modifier.padding(horizontal = ROW_INSET.dp))
-                    }
-                }
-                if (showMatches) {
-                    item(key = "matches") {
-                        MatchesCard(resumeTick, Modifier.padding(horizontal = ROW_INSET.dp))
                     }
                 }
                 itemsIndexed(cells.chunked(COLUMNS), key = { index, _ -> "row$index" }) { _, row ->
@@ -353,7 +351,7 @@ private fun GridTile(
                 .clip(shape)
                 .background(if (cardTheme == CardTheme.LIGHT) CardLight else CardDark)
                 // Scale alone is too subtle from across the room, so focus also lights a bright rim and a sheen.
-                .focusSheen(sheen, shape)
+                .appCardFocus(sheen, shape, lightCard = cardTheme == CardTheme.LIGHT)
                 .then(if (active) Modifier else Modifier.border(1.dp, Color.White.copy(alpha = if (dimmed) 0.05f else 0.14f), shape))
                 .focusRequester(focusRequester)
                 .onFocusChanged {

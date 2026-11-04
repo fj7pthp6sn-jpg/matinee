@@ -16,8 +16,8 @@ android {
         applicationId = "com.yigitcan.matinee"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
-        versionName = "1.5.5"
+        versionCode = 36
+        versionName = "1.6.11"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
@@ -51,6 +51,14 @@ android {
                 keyPassword = props.getProperty("keyPassword")
             }
         }
+    }
+
+    // The same app built twice. Play updates its build itself and forbids apps to install updates any other way, so
+    // only the build published on GitHub carries its own updater (src/github); src/play has a stand-in that does nothing.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("play") { dimension = "distribution" }
+        create("github") { dimension = "distribution" }
     }
 
     buildTypes {
@@ -95,4 +103,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // Talks to the TV's own adb daemon over localhost for the one-time permission setup (Settings → Remote).
+    implementation("dev.mobile:dadb:2.0.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

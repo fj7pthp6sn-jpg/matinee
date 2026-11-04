@@ -1,9 +1,12 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package com.tcltv.sahne.ui.settings
 
 import android.Manifest
 import android.app.Activity
 import android.os.Environment
 import android.os.StatFs
+import android.os.SystemClock
 import android.provider.Settings
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
@@ -12,6 +15,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.focusGroup
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -71,6 +80,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -87,11 +97,17 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tcltv.sahne.BackgroundAppsState
 import com.tcltv.sahne.CitySearchState
+import com.tcltv.sahne.HomeKeyProblem
 import com.tcltv.sahne.LauncherViewModel
 import com.tcltv.sahne.R
 import com.tcltv.sahne.data.AppLanguage
 import com.tcltv.sahne.data.BuiltinWallpaper
+import com.tcltv.sahne.data.AppCatalog
+import com.tcltv.sahne.system.HomeKeyGuard
+import com.tcltv.sahne.ui.home.AddAppDialog
+import com.tcltv.sahne.data.DeviceProfile
 import com.tcltv.sahne.data.PhotoWallpaper
 import com.tcltv.sahne.data.CardTheme
 import com.tcltv.sahne.data.DeviceLogo
@@ -116,6 +132,8 @@ import com.tcltv.sahne.data.WeatherLocation
 import com.tcltv.sahne.screensaver.ScreensaverPrefs
 import com.tcltv.sahne.ui.interStyle
 import com.tcltv.sahne.ui.longPressClickable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private enum class Section(@StringRes val title: Int, @StringRes val subtitle: Int, @DrawableRes val icon: Int) {
     NETWORK(R.string.settings_network, R.string.settings_network_sub, R.drawable.ic_wifi),
@@ -135,13 +153,15 @@ private enum class Section(@StringRes val title: Int, @StringRes val subtitle: I
 private sealed interface SubPage {
     data object CitySearch : SubPage
     data object ProfileName : SubPage
-    data object Licenses : SubPage
     data class InputEditor(val inputId: String) : SubPage
+    data class KeyEditor(val keyCode: Int) : SubPage
     data object CleanExclusions : SubPage
+    data object BackgroundApps : SubPage
     data object Language : SubPage
     data object CalendarUrl : SubPage
     data object ScreensaverStyle : SubPage
     data object ColorTheme : SubPage
+    data object Licenses : SubPage
     data object LockedApps : SubPage
     data object Wallpaper : SubPage
 }
@@ -219,6 +239,10 @@ fun SettingsScreen(viewModel: LauncherViewModel, onClose: () -> Unit, onEditApps
             Modifier
                 .padding(start = 348.dp, end = 48.dp, top = 137.dp, bottom = 59.dp)
                 .fillMaxSize()
+                // Left out of the panel goes back to the section it belongs to, not to whichever menu row happens to
+                // sit level with the focused row.
+                .focusProperties { exit = { direction -> if (direction == FocusDirection.Left) navRequesters.getValue(section) else FocusRequester.Default } }
+                .focusGroup()
                 .glass(RoundedCornerShape(30.dp), GlassStyle.Panel)
                 .padding(start = 22.dp, end = 22.dp, top = 20.dp),
         ) {
@@ -228,15 +252,17 @@ fun SettingsScreen(viewModel: LauncherViewModel, onClose: () -> Unit, onEditApps
                     null -> stringResource(section.title)
                     SubPage.CitySearch -> stringResource(R.string.setting_city)
                     SubPage.ProfileName -> stringResource(R.string.setting_profile_name)
-                    SubPage.Licenses -> stringResource(R.string.setting_licenses)
                     SubPage.CleanExclusions -> stringResource(R.string.setting_exclusions)
+                    SubPage.BackgroundApps -> stringResource(R.string.setting_background_apps)
                     SubPage.Language -> stringResource(R.string.setting_language)
                     SubPage.CalendarUrl -> stringResource(R.string.setting_screensaver_calendar)
                     SubPage.ScreensaverStyle -> stringResource(R.string.setting_screensaver_theme)
                     SubPage.ColorTheme -> stringResource(R.string.setting_color_theme)
+                    SubPage.Licenses -> stringResource(R.string.setting_licenses)
                     SubPage.LockedApps -> stringResource(R.string.setting_locked_apps)
                     SubPage.Wallpaper -> stringResource(R.string.setting_wallpaper)
                     is SubPage.InputEditor -> stringResource(R.string.edit_input)
+                    is SubPage.KeyEditor -> keyName(page.keyCode)
                 },
                 subtitle = stringResource(section.subtitle),
             )
@@ -245,13 +271,15 @@ fun SettingsScreen(viewModel: LauncherViewModel, onClose: () -> Unit, onEditApps
                 null -> SectionContent(section, viewModel, panelRequester, onEditApps) { subPage = it }
                 SubPage.CitySearch -> CitySearchPage(viewModel, panelRequester) { closePage() }
                 is SubPage.InputEditor -> InputEditorPage(viewModel, page.inputId, panelRequester)
+                is SubPage.KeyEditor -> KeyEditorPage(viewModel, page.keyCode, panelRequester) { closePage() }
                 SubPage.ProfileName -> ProfileNamePage(viewModel, panelRequester)
-                SubPage.Licenses -> LicensesPage(panelRequester)
                 SubPage.CleanExclusions -> CleanExclusionsPage(viewModel, panelRequester)
+                SubPage.BackgroundApps -> BackgroundAppsPage(viewModel, panelRequester)
                 SubPage.Language -> LanguagePage(panelRequester)
                 SubPage.CalendarUrl -> CalendarUrlPage(panelRequester)
                 SubPage.ScreensaverStyle -> ScreensaverStylePage(viewModel, panelRequester)
                 SubPage.ColorTheme -> ColorThemePage(panelRequester)
+                SubPage.Licenses -> LicensesPage(panelRequester)
                 SubPage.LockedApps -> LockedAppsPage(viewModel, panelRequester)
                 SubPage.Wallpaper -> WallpaperPage(viewModel, panelRequester)
             }
@@ -394,6 +422,27 @@ private fun SectionContent(
             listOf(SystemLink(R.string.system_apps, R.string.system_apps_sub, Settings.ACTION_APPLICATION_SETTINGS)),
             extra = {
                 val s by viewModel.settings.collectAsStateWithLifecycle()
+                val allApps by viewModel.appsForSettings.collectAsStateWithLifecycle()
+                var adding by remember { mutableStateOf(false) }
+                val hidden = allApps.filter { AppCatalog.isHidden(it, s) }
+                ValueRow(
+                    R.string.setting_add_app,
+                    R.string.setting_add_app_sub,
+                    if (hidden.isEmpty()) stringResource(R.string.none) else stringResource(R.string.app_count, hidden.size),
+                ) { adding = true }
+                if (adding) {
+                    AddAppDialog(
+                        hiddenApps = hidden,
+                        onAdd = { app ->
+                            viewModel.toggleHidden(app.packageName)
+                            adding = false
+                        },
+                        onDismiss = { adding = false },
+                    )
+                }
+                ToggleRow(R.string.setting_show_add_tile, R.string.setting_show_add_tile_sub, s.showAddTile) {
+                    viewModel.update { setShowAddTile(it) }
+                }
                 ValueRow(R.string.setting_app_order, R.string.setting_app_order_sub, null, onClick = onEditApps)
                 ToggleRow(R.string.setting_show_system_apps, R.string.setting_show_system_apps_sub, s.showSystemApps) {
                     viewModel.update { setShowSystemApps(it) }
@@ -404,6 +453,13 @@ private fun SectionContent(
             viewModel,
             firstRow,
             listOf(SystemLink(R.string.system_bluetooth, R.string.system_bluetooth_sub, Settings.ACTION_BLUETOOTH_SETTINGS)),
+            extra = {
+                RemoteRows(
+                    viewModel,
+                    keyRowModifier = { keyCode -> Modifier.opensPage(SubPage.KeyEditor(keyCode)) },
+                    onEditKey = { keyCode -> open(SubPage.KeyEditor(keyCode)) },
+                )
+            },
         )
         Section.HOME -> HomePanel(viewModel, firstRow, onEditApps, open)
         Section.PARENTAL -> ParentalPanel(viewModel, firstRow, open)
@@ -468,6 +524,9 @@ private fun HomePanel(viewModel: LauncherViewModel, firstRow: FocusRequester, on
         ToggleRow(R.string.setting_glass_effects, R.string.setting_glass_effects_sub, s.glassEffects) {
             viewModel.update { setGlassEffects(it) }
         }
+        ToggleRow(R.string.setting_focus_outline, R.string.setting_focus_outline_sub, s.focusOutline) {
+            viewModel.update { setFocusOutline(it) }
+        }
         ToggleRow(R.string.setting_airplay_receiver, R.string.setting_airplay_receiver_sub, s.airplayReceiver) {
             viewModel.update { setAirplayReceiver(it) }
         }
@@ -512,6 +571,7 @@ private fun HomePanel(viewModel: LauncherViewModel, firstRow: FocusRequester, on
         ToggleRow(R.string.setting_last_played, R.string.setting_last_played_sub, s.showLastPlayed) {
             viewModel.update { setShowLastPlayed(it) }
         }
+        ValueRow("Devam eden içerik durumu", null, com.tcltv.sahne.data.WatchNext.status) { viewModel.refreshWatchNext() }
         var historyCleared by remember { mutableStateOf(false) }
         ValueRow(R.string.setting_clear_history, null, if (historyCleared) stringResource(R.string.history_cleared) else null) {
             viewModel.clearMediaHistory()
@@ -590,6 +650,17 @@ private fun DevicePanel(viewModel: LauncherViewModel, firstRow: FocusRequester, 
             stringResource(R.string.memory_usage, memory.usedPercent, Formatter.formatShortFileSize(context, memory.availableBytes)),
             modifier = Modifier.focusRequester(firstRow),
         )
+        val profile = remember { DeviceProfile.of(context) }
+        InfoRow(
+            R.string.setting_chip,
+            null,
+            listOf(
+                profile.chip.ifBlank { null },
+                pluralStringResource(R.plurals.cpu_cores, profile.cores, profile.cores),
+                Formatter.formatShortFileSize(context, profile.memoryBytes),
+            ).filterNotNull().joinToString(" · "),
+        )
+        InfoRow(R.string.setting_performance, R.string.setting_performance_sub, stringResource(profile.tier.label))
         ValueRow(
             R.string.setting_clean_now,
             R.string.setting_clean_now_sub,
@@ -600,6 +671,12 @@ private fun DevicePanel(viewModel: LauncherViewModel, firstRow: FocusRequester, 
             },
         ) { viewModel.cleanMemory() }
         ToggleRow(R.string.setting_auto_clean, R.string.setting_auto_clean_sub, s.autoCleanMemory) { viewModel.update { setAutoCleanMemory(it) } }
+        ValueRow(
+            R.string.setting_background_apps,
+            R.string.setting_background_apps_sub,
+            null,
+            Modifier.opensPage(SubPage.BackgroundApps),
+        ) { open(SubPage.BackgroundApps) }
         ValueRow(
             R.string.setting_exclusions,
             null,
@@ -670,16 +747,60 @@ private fun LanguagePage(firstRow: FocusRequester) {
     }
 }
 
+/** Who made Matinee and where to find them: a TV has no browser to open links in, so they are shown, not linked. */
 @Composable
 private fun Credits() {
-    Column(Modifier.fillMaxWidth().padding(start = 12.dp, top = 18.dp, end = 12.dp)) {
-        BasicText(stringResource(R.string.credits_made_by, DEVELOPER_SITE), style = interStyle(12.sp, 600, Palette.TextSecondary))
-        BasicText("$DEVELOPER_SITE · $DEVELOPER_X", style = interStyle(11.sp, 500, Palette.TextMuted))
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp)
+            .glass(shape, if (focused) GlassStyle.Lit else GlassStyle.Selected)
+            .onFocusChanged { focused = it.isFocused }
+            .focusable()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painterResource(R.drawable.ic_launcher),
+                contentDescription = null,
+                modifier = Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column {
+                BasicText(stringResource(R.string.app_name), style = interStyle(16.sp, 800))
+                BasicText(stringResource(R.string.credits_made_by, DEVELOPER_NAME), style = interStyle(12.sp, 500, Palette.TextSecondary))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CreditChip(R.drawable.ic_world, DEVELOPER_SITE)
+            CreditChip(R.drawable.ic_brand_x, DEVELOPER_X)
+            CreditChip(R.drawable.ic_brand_github, DEVELOPER_GITHUB)
+        }
     }
 }
 
+@Composable
+private fun CreditChip(@DrawableRes icon: Int, label: String) {
+    Row(
+        Modifier
+            .background(Color.White.copy(alpha = 0.1f), CircleShape)
+            .border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(painterResource(icon), contentDescription = null, colorFilter = ColorFilter.tint(Palette.TextPrimary), modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(7.dp))
+        BasicText(label, maxLines = 1, style = interStyle(12.5.sp, 650))
+    }
+}
+
+private const val DEVELOPER_NAME = "Yiğit Can Polat"
 private const val DEVELOPER_SITE = "yigitech.dev"
-private const val DEVELOPER_X = "x.com/yigitech"
+private const val DEVELOPER_X = "@yigitech"
+private const val DEVELOPER_GITHUB = "github.com/Jarvis322/matinee"
 
 @Composable
 private fun LicensesPage(firstRow: FocusRequester) {
@@ -712,21 +833,24 @@ private fun ParentalPanel(viewModel: LauncherViewModel, firstRow: FocusRequester
     val parental = s.parental
     var showSetup by remember { mutableStateOf(false) }
     var setupClosed by remember { mutableStateOf(false) }
-    // The row that opened the PIN screen may be gone by the time it closes (Set a PIN becomes Change PIN), so focus
-    // returns to the first row of the panel.
+    // The row that opened the PIN screen may be gone by the time it closes (Set a PIN becomes Change PIN, a moment
+    // after the PIN is saved), so focus returns to the first row of the panel, and again once that row is replaced.
     LaunchedEffect(setupClosed, parental.hasPin) {
-        if (setupClosed) {
-            setupClosed = false
-            runCatching { firstRow.requestFocus() }
-        }
+        if (setupClosed) runCatching { firstRow.requestFocus() }
     }
     PanelList {
         if (!parental.hasPin) {
-            ValueRow(R.string.setting_pin_set, R.string.setting_pin_set_sub, null, Modifier.focusRequester(firstRow)) { showSetup = true }
+            ValueRow(R.string.setting_pin_set, R.string.setting_pin_set_sub, null, Modifier.focusRequester(firstRow)) {
+                setupClosed = false
+                showSetup = true
+            }
         } else {
             // Changing or removing the PIN always asks for the current one, whatever the "protect settings" choice.
             ValueRow(R.string.setting_pin_change, null, null, Modifier.focusRequester(firstRow)) {
-                viewModel.gate.requireForApp(R.string.pin_reason_admin, locked = true) { showSetup = true }
+                viewModel.gate.requireForApp(R.string.pin_reason_admin, locked = true) {
+                    setupClosed = false
+                    showSetup = true
+                }
             }
             ValueRow(R.string.setting_pin_remove, null, null) {
                 viewModel.gate.requireForApp(R.string.pin_reason_admin, locked = true) { viewModel.removePin() }
@@ -746,8 +870,8 @@ private fun ParentalPanel(viewModel: LauncherViewModel, firstRow: FocusRequester
     if (showSetup) {
         PinSetup(
             title = stringResource(R.string.pin_new_title),
-            onSet = {
-                viewModel.setPin(it)
+            onSet = { pin, kind ->
+                viewModel.setPin(pin, kind)
                 showSetup = false
                 setupClosed = true
             },
@@ -878,6 +1002,45 @@ private fun LockedAppsPage(viewModel: LauncherViewModel, firstRow: FocusRequeste
     }
 }
 
+/** Apps that still run behind Matinee, each closed with one press, or all at once. */
+@Composable
+private fun BackgroundAppsPage(viewModel: LauncherViewModel, firstRow: FocusRequester) {
+    val state by viewModel.backgroundAppsState.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.refreshBackgroundApps() }
+    // The rows come and go as the list loads and apps close; whichever row held focus is gone, so focus starts over.
+    val rows = (state as? BackgroundAppsState.Ready)?.apps?.map { it.packageName } ?: state::class
+    LaunchedEffect(rows) { runCatching { firstRow.requestFocus() } }
+    PanelList {
+        when (val current = state) {
+            BackgroundAppsState.Loading -> InfoRow(R.string.background_apps_loading, null, "…", Modifier.focusRequester(firstRow))
+            BackgroundAppsState.NeedsAdb -> {
+                InfoRow(
+                    R.string.background_apps_needs_adb,
+                    R.string.background_apps_needs_adb_sub,
+                    stringResource(R.string.switch_off),
+                    Modifier.focusRequester(firstRow),
+                )
+            }
+            is BackgroundAppsState.Ready -> {
+                if (current.apps.isEmpty()) {
+                    InfoRow(R.string.background_apps_none, null, "0", Modifier.focusRequester(firstRow))
+                } else {
+                    ValueRow(
+                        R.string.background_apps_close_all,
+                        null,
+                        stringResource(R.string.app_count, current.apps.size),
+                        Modifier.focusRequester(firstRow),
+                    ) { viewModel.closeBackgroundApp(null) }
+                    current.apps.forEach { app ->
+                        ValueRow(app.label, null, stringResource(R.string.background_apps_close)) { viewModel.closeBackgroundApp(app) }
+                    }
+                }
+            }
+        }
+        Note(R.string.note_background_apps)
+    }
+}
+
 @Composable
 private fun CleanExclusionsPage(viewModel: LauncherViewModel, firstRow: FocusRequester) {
     val apps by viewModel.appsForSettings.collectAsStateWithLifecycle()
@@ -949,7 +1112,6 @@ private fun ScreensaverPanel(viewModel: LauncherViewModel, firstRow: FocusReques
 private fun InfoPanel(firstRow: FocusRequester) {
     val context = LocalContext.current
     var prayer by remember { mutableStateOf(com.tcltv.sahne.info.InfoPrefs.showPrayer(context)) }
-    var matches by remember { mutableStateOf(com.tcltv.sahne.info.InfoPrefs.showMatches(context)) }
     var saver by remember { mutableStateOf(com.tcltv.sahne.info.InfoPrefs.saverPrayer(context)) }
     PanelList {
         ToggleRow(stringResource(R.string.setting_info_prayer), stringResource(R.string.setting_info_prayer_sub), prayer, Modifier.focusRequester(firstRow)) {
@@ -960,11 +1122,6 @@ private fun InfoPanel(firstRow: FocusRequester) {
             saver = it
             com.tcltv.sahne.info.InfoPrefs.setSaverPrayer(context, it)
         }
-        ToggleRow(stringResource(R.string.setting_info_matches), stringResource(R.string.setting_info_matches_sub), matches) {
-            matches = it
-            com.tcltv.sahne.info.InfoPrefs.setShowMatches(context, it)
-        }
-        ValueRow("Logo durumu", null, com.tcltv.sahne.info.LogoCache.lastStatus) { }
         Note(R.string.note_info)
     }
 }
@@ -1167,14 +1324,14 @@ private fun LogoOption(logo: DeviceLogo, selected: Boolean, onClick: () -> Unit)
 }
 
 @Composable
-private fun PanelList(content: @Composable () -> Unit) {
+internal fun PanelList(content: @Composable () -> Unit) {
     LazyColumn(contentPadding = PaddingValues(bottom = 20.dp)) {
         item { Column { content() } }
     }
 }
 
 @Composable
-private fun FocusRow(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+internal fun FocusRow(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Column {
         Row(
@@ -1192,7 +1349,7 @@ private fun FocusRow(onClick: () -> Unit, modifier: Modifier = Modifier, content
 }
 
 @Composable
-private fun RowLabel(label: String, subtitle: String?, modifier: Modifier) {
+internal fun RowLabel(label: String, subtitle: String?, modifier: Modifier) {
     Column(modifier) {
         BasicText(label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = interStyle(14.sp, 600))
         if (subtitle != null) {
@@ -1236,7 +1393,7 @@ private fun ToggleRow(label: String, subtitle: String?, checked: Boolean, modifi
 }
 
 @Composable
-private fun ValueRow(
+internal fun ValueRow(
     @StringRes label: Int,
     @StringRes subtitle: Int?,
     value: String?,
@@ -1245,7 +1402,7 @@ private fun ValueRow(
 ) = ValueRow(stringResource(label), subtitle?.let { stringResource(it) }, value, modifier, onClick)
 
 @Composable
-private fun ValueRow(label: String, subtitle: String?, value: String?, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun ValueRow(label: String, subtitle: String?, value: String?, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FocusRow(onClick = onClick, modifier = modifier) {
         RowLabel(label, subtitle, Modifier.weight(1f))
         if (value != null) {
@@ -1259,7 +1416,7 @@ private fun ValueRow(label: String, subtitle: String?, value: String?, modifier:
 
 /** One option of a single-choice list, marked with a filled ring when selected. */
 @Composable
-private fun ChoiceRow(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun ChoiceRow(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     FocusRow(
         onClick = onClick,
         modifier = modifier.semantics {
@@ -1314,7 +1471,7 @@ private fun FieldLabel(@StringRes res: Int) {
 }
 
 @Composable
-private fun Note(@StringRes res: Int) {
+internal fun Note(@StringRes res: Int) {
     BasicText(
         stringResource(res),
         style = interStyle(11.sp, 400, Palette.TextMuted).copy(lineHeight = 16.sp),
@@ -1378,25 +1535,78 @@ private fun NotificationAccessRow(viewModel: LauncherViewModel) {
 }
 
 @Composable
-private fun HomeKeyRow(viewModel: LauncherViewModel) {
+internal fun HomeKeyRow(viewModel: LauncherViewModel, modifier: Modifier = Modifier) {
     var enabled by remember { mutableStateOf(viewModel.isHomeKeyServiceEnabled()) }
+    var running by remember { mutableStateOf(viewModel.isHomeKeyServiceRunning()) }
     var showDisclosure by remember { mutableStateOf(false) }
     var showRestricted by remember { mutableStateOf(false) }
-    LifecycleResumeEffect(Unit) {
+    var showStopped by remember { mutableStateOf(false) }
+    var showSwitchOff by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    LifecycleResumeEffect(refresh) {
         enabled = viewModel.isHomeKeyServiceEnabled()
+        running = viewModel.isHomeKeyServiceRunning()
         onPauseOrDispose { }
     }
+    // With Automatic ADB set up Matinee switches the service itself; otherwise only the TV's settings can.
+    val selfSwitching = viewModel.canSwitchHomeKey()
+    fun switchOn() {
+        if (selfSwitching) {
+            scope.launch {
+                viewModel.switchHomeKeyOn()
+                // Android binds the service a moment after the setting changes.
+                delay(SERVICE_BIND_MS)
+                refresh++
+            }
+        } else {
+            viewModel.openSystemSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        }
+    }
+    val stopped = enabled && !running
     ValueRow(
         R.string.setting_home_key,
         R.string.setting_home_key_sub,
-        stringResource(if (enabled) R.string.switch_on else R.string.switch_off),
+        stringResource(
+            when {
+                stopped -> R.string.home_key_stopped
+                enabled -> R.string.switch_on
+                else -> R.string.switch_off
+            },
+        ),
+        modifier = modifier,
     ) {
         // Turning it on needs explicit consent first (Play's accessibility policy); turning it off doesn't.
         when {
+            stopped && selfSwitching -> switchOn()
+            stopped -> showStopped = true
+            enabled && selfSwitching -> showSwitchOff = true
             enabled -> viewModel.openSystemSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            viewModel.isAccessibilityRestricted() -> showRestricted = true
+            viewModel.isAccessibilityRestricted() && !selfSwitching -> showRestricted = true
             else -> showDisclosure = true
         }
+    }
+    if (showStopped) {
+        HomeKeyStoppedDialog(
+            onOpen = {
+                showStopped = false
+                viewModel.openSystemSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            },
+            onDismiss = { showStopped = false },
+        )
+    }
+    if (showSwitchOff) {
+        ConsentDialog(
+            title = R.string.home_key_switch_off_title,
+            body = R.string.home_key_switch_off_body,
+            accept = R.string.home_key_switch_off,
+            onAccept = {
+                showSwitchOff = false
+                viewModel.switchHomeKeyOff()
+                refresh++
+            },
+            onDismiss = { showSwitchOff = false },
+        )
     }
     if (showRestricted) {
         // Shown before the consent so the user knows why the switch may not stay on; they can still try.
@@ -1418,15 +1628,85 @@ private fun HomeKeyRow(viewModel: LauncherViewModel) {
             accept = R.string.home_key_disclosure_accept,
             onAccept = {
                 showDisclosure = false
-                viewModel.openSystemSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                switchOn()
             },
             onDismiss = { showDisclosure = false },
+            // What happens after agreeing depends on who switches the service on.
+            closing = if (selfSwitching) R.string.home_key_disclosure_direct else R.string.home_key_disclosure_steps,
         )
     }
 }
 
+/**
+ * Tells the user, when they come back to Matinee, that the Home button they turned on no longer works, so they don't
+ * find out only when the remote's Home button opens the stock launcher.
+ */
 @Composable
-private fun ConsentDialog(@StringRes title: Int, @StringRes body: Int, @StringRes accept: Int, onAccept: () -> Unit, onDismiss: () -> Unit) {
+internal fun HomeKeyStoppedPrompt(viewModel: LauncherViewModel, resumeTick: Int) {
+    var problem by remember { mutableStateOf<HomeKeyProblem?>(null) }
+    LaunchedEffect(resumeTick) {
+        // Android binds accessibility services again at every start, and may still be doing so right after boot.
+        val settled = SystemClock.elapsedRealtime() > BOOT_SETTLE_MS
+        problem = viewModel.homeKeyProblem()
+            ?.takeIf { settled }
+            ?.takeUnless { it == HomeKeyProblem.STOPPED && viewModel.homeKeyStoppedPromptDismissed }
+        // With Automatic ADB set up there is nothing to ask: Matinee turns the service back on itself.
+        if (viewModel.canSwitchHomeKey()) problem = null
+    }
+    when (problem) {
+        HomeKeyProblem.STOPPED -> {
+            val close = {
+                problem = null
+                viewModel.homeKeyStoppedPromptDismissed = true
+            }
+            HomeKeyStoppedDialog(
+                onOpen = {
+                    close()
+                    viewModel.openSystemSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                },
+                onDismiss = close,
+            )
+        }
+        HomeKeyProblem.SWITCHED_OFF -> ConsentDialog(
+            title = R.string.home_key_off_title,
+            body = R.string.home_key_off_body,
+            accept = R.string.home_key_stopped_open,
+            onAccept = {
+                problem = null
+                viewModel.openSystemSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            },
+            onDismiss = {
+                problem = null
+                viewModel.forgetHomeKey()
+            },
+        )
+        null -> Unit
+    }
+}
+
+private const val BOOT_SETTLE_MS = HomeKeyGuard.BOOT_SETTLE_MS
+private const val SERVICE_BIND_MS = 1_500L
+
+@Composable
+private fun HomeKeyStoppedDialog(onOpen: () -> Unit, onDismiss: () -> Unit) {
+    ConsentDialog(
+        title = R.string.home_key_stopped_title,
+        body = R.string.home_key_stopped_body,
+        accept = R.string.home_key_stopped_open,
+        onAccept = onOpen,
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+internal fun ConsentDialog(
+    @StringRes title: Int,
+    @StringRes body: Int,
+    @StringRes accept: Int,
+    onAccept: () -> Unit,
+    onDismiss: () -> Unit,
+    @StringRes closing: Int? = null,
+) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val cancelFocus = remember { FocusRequester() }
         // Focus starts on Cancel so a stray OK press never grants the permission.
@@ -1439,7 +1719,8 @@ private fun ConsentDialog(@StringRes title: Int, @StringRes body: Int, @StringRe
         ) {
             BasicText(stringResource(title), style = interStyle(17.sp, 700))
             Spacer(Modifier.height(10.dp))
-            BasicText(stringResource(body), style = interStyle(12.5.sp, 500, Palette.TextSecondary).copy(lineHeight = 18.sp))
+            val text = stringResource(body) + (closing?.let { "\n\n" + stringResource(it) } ?: "")
+            BasicText(text, style = interStyle(12.5.sp, 500, Palette.TextSecondary).copy(lineHeight = 18.sp))
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 DialogButton(stringResource(R.string.cancel), Modifier.focusRequester(cancelFocus), onDismiss)
@@ -1450,7 +1731,7 @@ private fun ConsentDialog(@StringRes title: Int, @StringRes body: Int, @StringRe
 }
 
 @Composable
-private fun DialogButton(label: String, modifier: Modifier, onClick: () -> Unit) {
+internal fun DialogButton(label: String, modifier: Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
         modifier

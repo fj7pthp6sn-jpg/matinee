@@ -49,6 +49,7 @@ data class LauncherSettings(
     val showNotifications: Boolean = true,
     val showChromecast: Boolean = true,
     val showLastPlayed: Boolean = true,
+    val focusOutline: Boolean = true,
     val profileName: String = "",
     val profileColor: Int = 0,
     val showPlayUpdates: Boolean = true,
@@ -62,6 +63,8 @@ data class LauncherSettings(
     val hiddenApps: Set<String> = emptySet(),
     val shownApps: Set<String> = emptySet(),
     val showSystemApps: Boolean = false,
+    /** The grid's "Add app" tile; apps can also be added from Settings > Apps. */
+    val showAddTile: Boolean = true,
     val autoCleanMemory: Boolean = false,
     val memoryThresholdPercent: Int = 80,
     val memoryCleanExclusions: Set<String> = emptySet(),
@@ -105,6 +108,7 @@ class SettingsStore(private val context: Context) {
         val showNotifications = booleanPreferencesKey("show_notifications")
         val showChromecast = booleanPreferencesKey("show_google_home")
         val showLastPlayed = booleanPreferencesKey("show_last_played")
+        val focusOutline = booleanPreferencesKey("focus_outline")
         val profileName = stringPreferencesKey("profile_name")
         val profileColor = intPreferencesKey("profile_color")
         val showPlayUpdates = booleanPreferencesKey("show_play_updates")
@@ -119,6 +123,7 @@ class SettingsStore(private val context: Context) {
         val hiddenApps = stringSetPreferencesKey("hidden_apps")
         val shownApps = stringSetPreferencesKey("shown_apps")
         val showSystemApps = booleanPreferencesKey("show_system_apps")
+        val showAddTile = booleanPreferencesKey("show_add_tile")
         val autoCleanMemory = booleanPreferencesKey("auto_clean_memory")
         val memoryThreshold = intPreferencesKey("memory_threshold_percent")
         val memoryExclusions = stringSetPreferencesKey("memory_clean_exclusions")
@@ -129,6 +134,7 @@ class SettingsStore(private val context: Context) {
         val folders = stringPreferencesKey("folders")
         val pinHash = stringPreferencesKey("pin_hash")
         val pinSalt = stringPreferencesKey("pin_salt")
+        val pinKind = stringPreferencesKey("pin_kind")
         val protectSettings = booleanPreferencesKey("protect_settings")
         val pinFailures = intPreferencesKey("pin_failures")
         val pinLockedUntil = longPreferencesKey("pin_locked_until")
@@ -141,7 +147,8 @@ class SettingsStore(private val context: Context) {
         .map { it.toSettings() }
 
     private fun Preferences.toSettings(): LauncherSettings {
-        val defaults = LauncherSettings()
+        // The TV's own capability picks the starting values for the effects; saved choices still win below.
+        val defaults = DeviceProfile.of(context).defaults()
         val overrides = mutableMapOf<String, InputOverride>()
         asMap().forEach { (key, value) ->
             val name = key.name
@@ -175,6 +182,7 @@ class SettingsStore(private val context: Context) {
             showNotifications = this[Keys.showNotifications] ?: defaults.showNotifications,
             showChromecast = this[Keys.showChromecast] ?: defaults.showChromecast,
             showLastPlayed = this[Keys.showLastPlayed] ?: defaults.showLastPlayed,
+            focusOutline = this[Keys.focusOutline] ?: defaults.focusOutline,
             profileName = this[Keys.profileName] ?: defaults.profileName,
             profileColor = this[Keys.profileColor] ?: defaults.profileColor,
             showPlayUpdates = this[Keys.showPlayUpdates] ?: defaults.showPlayUpdates,
@@ -193,6 +201,7 @@ class SettingsStore(private val context: Context) {
             hiddenApps = this[Keys.hiddenApps] ?: defaults.hiddenApps,
             shownApps = this[Keys.shownApps] ?: defaults.shownApps,
             showSystemApps = this[Keys.showSystemApps] ?: defaults.showSystemApps,
+            showAddTile = this[Keys.showAddTile] ?: defaults.showAddTile,
             autoCleanMemory = this[Keys.autoCleanMemory] ?: defaults.autoCleanMemory,
             memoryThresholdPercent = this[Keys.memoryThreshold] ?: defaults.memoryThresholdPercent,
             memoryCleanExclusions = this[Keys.memoryExclusions] ?: defaults.memoryCleanExclusions,
@@ -204,6 +213,7 @@ class SettingsStore(private val context: Context) {
             parental = Parental(
                 pinHash = this[Keys.pinHash],
                 pinSalt = this[Keys.pinSalt],
+                pinKind = PinKind.entries.firstOrNull { it.name == this[Keys.pinKind] } ?: PinKind.DIGITS,
                 protectSettings = this[Keys.protectSettings] ?: defaults.parental.protectSettings,
                 failures = this[Keys.pinFailures] ?: 0,
                 lockedUntilMillis = this[Keys.pinLockedUntil] ?: 0L,
@@ -237,6 +247,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setShowNotifications(value: Boolean) = edit { it[Keys.showNotifications] = value }
     suspend fun setShowChromecast(value: Boolean) = edit { it[Keys.showChromecast] = value }
     suspend fun setShowLastPlayed(value: Boolean) = edit { it[Keys.showLastPlayed] = value }
+    suspend fun setFocusOutline(value: Boolean) = edit { it[Keys.focusOutline] = value }
     suspend fun setProfileName(value: String) = edit { it[Keys.profileName] = value.trim() }
     suspend fun setProfileColor(value: Int) = edit { it[Keys.profileColor] = value }
     suspend fun setShowPlayUpdates(value: Boolean) = edit { it[Keys.showPlayUpdates] = value }
@@ -265,6 +276,7 @@ class SettingsStore(private val context: Context) {
         it[Keys.shownApps] = shown
     }
     suspend fun setShowSystemApps(value: Boolean) = edit { it[Keys.showSystemApps] = value }
+    suspend fun setShowAddTile(value: Boolean) = edit { it[Keys.showAddTile] = value }
     suspend fun setAutoCleanMemory(value: Boolean) = edit { it[Keys.autoCleanMemory] = value }
     suspend fun setMemoryThreshold(value: Int) = edit { it[Keys.memoryThreshold] = value }
     suspend fun setMemoryCleanExclusions(value: Set<String>) = edit { it[Keys.memoryExclusions] = value }
@@ -276,9 +288,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setAppOverrides(value: Map<String, AppOverride>) = edit { it[Keys.appOverrides] = CustomizationJson.encodeOverrides(value) }
     suspend fun setFolders(value: List<Folder>) = edit { it[Keys.folders] = CustomizationJson.encodeFolders(value) }
 
-    suspend fun setPin(hash: String, salt: String) = edit {
+    suspend fun setPin(hash: String, salt: String, kind: PinKind) = edit {
         it[Keys.pinHash] = hash
         it[Keys.pinSalt] = salt
+        it[Keys.pinKind] = kind.name
         it[Keys.pinFailures] = 0
         it[Keys.pinLockedUntil] = 0L
     }

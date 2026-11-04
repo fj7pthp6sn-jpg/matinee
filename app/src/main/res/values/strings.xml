@@ -71,7 +71,7 @@
     <string name="settings_bluetooth">Bluetooth and remote</string>
     <string name="settings_bluetooth_sub">Remote and accessories</string>
     <string name="settings_about">About</string>
-    <string name="settings_about_sub">Version and licenses</string>
+    <string name="settings_about_sub">Version, language and credits</string>
 
     <!-- System links -->
     <string name="open_in_tv_settings">Open</string>
@@ -154,8 +154,8 @@
     <!-- Device -->
     <string name="setting_ram_usage">RAM in use</string>
     <string name="memory_usage">%1$d%% · %2$s free</string>
-    <string name="setting_clean_now">Free up RAM now</string>
-    <string name="setting_clean_now_sub">Closes apps waiting in the background</string>
+    <string name="setting_clean_now">Close background apps</string>
+    <string name="setting_clean_now_sub">Closes every app waiting in the background, except the ones you keep</string>
     <string name="setting_auto_clean">Free up automatically</string>
     <string name="setting_auto_clean_sub">When the memory warning level is passed</string>
     <string name="setting_exclusions">Never close</string>
@@ -232,9 +232,9 @@
     <string name="setting_notification_access_sub">Reads only media playback info and Play Store update notifications. Nothing leaves the TV.</string>
 
     <string name="home_key_service_label">Matinee Home button</string>
-    <string name="home_key_service_description">Keeps Matinee as your home screen: the remote\'s Home button opens Matinee, and so does the TV\'s built-in home screen when it appears. Matinee never reads what is on the screen.</string>
+    <string name="home_key_service_description">Keeps Matinee as your home screen: the remote\'s Home button opens Matinee, and so does the TV\'s built-in home screen when it appears. It also runs the actions you give remote keys in Matinee\'s settings. Matinee never reads what is on the screen.</string>
     <string name="setting_home_key">Home button opens Matinee</string>
-    <string name="setting_home_key_sub">Uses an accessibility permission that sees only the Home button and when the built-in home screen opens. Nothing on screen is read.</string>
+    <string name="setting_home_key_sub">Uses an accessibility permission that sees only the Home button, the keys you assign and when the built-in home screen opens. Nothing on screen is read.</string>
 
     <string name="setting_wifi_name">Show Wi‑Fi network name</string>
     <string name="setting_wifi_name_sub">Android shares the network name only with apps that have location permission. Matinee uses it for nothing else.</string>
@@ -278,8 +278,6 @@
     <string name="language_german" translatable="false">Deutsch</string>
     <string name="language_japanese" translatable="false">日本語</string>
     <string name="language_chinese" translatable="false">简体中文</string>
-    <string name="setting_licenses">Licenses</string>
-    <string name="license_text">Weather data by Open‑Meteo.com, licensed under CC BY 4.0.\nIcons: Tabler Icons, MIT License.\nTypeface: Inter, SIL Open Font License 1.1.\nApp icons and banners belong to their apps.\nAirPlay: UxPlay, GPL-3.0; libplist, LGPL-2.1; OpenSSL and Apple ALAC, Apache-2.0.</string>
     <string name="credits_made_by">Made by %1$s</string>
 
     <string name="minutes_ago">%1$d min ago</string>
@@ -287,10 +285,12 @@
     <string name="days_ago">%1$d d ago</string>
     <string name="cancel">Cancel</string>
     <string name="home_key_disclosure_title">Let the Home button open Matinee?</string>
-    <string name="home_key_disclosure_body">Some TVs keep the Home button for their built‑in launcher and bring its home screen back after a restart. To open Matinee instead, Matinee uses an Android accessibility permission.\n\nIt sees only the remote\'s Home button and when the TV\'s built‑in home screen opens. It does not read what is on the screen, what you type, other keys or other apps, and nothing is sent anywhere.\n\nOn the next screen, choose “Matinee Home button” and turn it on. You can turn it off there at any time.</string>
+    <string name="home_key_disclosure_body">Some TVs keep the Home button for their built‑in launcher and bring its home screen back after a restart. To open Matinee instead, and to run the actions you give remote keys, Matinee uses an Android accessibility permission.\n\nIt sees remote key presses only to act on the Home button and the keys you assigned; every other key passes straight through. It also sees when the TV\'s built‑in home screen opens. It does not read what is on the screen, what you type or other apps, and nothing is stored or sent anywhere.</string>
+    <string name="home_key_disclosure_steps">On the next screen, choose “Matinee Home button” and turn it on. You can turn it off there at any time.</string>
+    <string name="home_key_disclosure_direct">Matinee turns it on right away. You can turn it off here at any time.</string>
     <string name="home_key_disclosure_accept">Agree and continue</string>
     <string name="home_key_restricted_title">Install Matinee from Google Play first</string>
-    <string name="home_key_restricted_body">This TV doesn\'t let apps installed from an APK file use accessibility permissions, so the switch turns itself back off.\n\nUninstall Matinee, install it from Google Play, then turn this on again.</string>
+    <string name="home_key_restricted_body">This TV doesn\'t let apps installed from an APK file use accessibility permissions, so the switch turns itself back off.\n\nSet up Automatic ADB in Settings → Bluetooth and remote, or uninstall Matinee and install it from Google Play, then turn this on again.</string>
     <string name="home_key_restricted_try">Try anyway</string>
 
     <!-- Notifications -->
@@ -482,4 +482,107 @@
     <string name="airplay_channel">AirPlay receiver</string>
     <string name="airplay_notification_title">AirPlay is on</string>
     <string name="airplay_notification_text">This TV can receive from iPhone, iPad and Mac</string>
+    <string name="airplay_hint_fill">Press OK to fill the screen with a full-screen video</string>
+    <string name="airplay_hint_show_all">Press OK to show the whole phone screen</string>
+    <string name="pin_kind_title">Choose the kind of PIN</string>
+    <string name="pin_kind_digits">Numbers</string>
+    <string name="pin_kind_directions">Arrow keys</string>
+    <string name="pin_directions_hint">Press the remote\'s arrow keys, 4 steps</string>
+    <string name="setting_chip">Processor</string>
+    <string name="setting_performance">Performance profile</string>
+    <string name="setting_performance_sub">Glass and moving light start on or off to suit this TV; your own choices stay</string>
+    <string name="performance_light">Light</string>
+    <string name="performance_balanced">Balanced</string>
+    <string name="performance_full">Full</string>
+    <plurals name="cpu_cores">
+        <item quantity="one">%d core</item>
+        <item quantity="other">%d cores</item>
+    </plurals>
+    <string name="pin_new_title_directions">Choose 4 arrow steps</string>
+    <string name="setting_licenses">Licenses</string>
+    <string name="license_text">Weather data by Open‑Meteo.com, licensed under CC BY 4.0.\nIcons: Tabler Icons, MIT License.\nTypeface: Inter, SIL Open Font License 1.1.\nApp icons and banners belong to their apps.\nAirPlay: UxPlay, GPL-3.0; libplist, LGPL-2.1; OpenSSL and Apple ALAC, Apache-2.0.\nADB: dadb, Apache-2.0.\nSource code: github.com/Jarvis322/matinee</string>
+    <string name="setting_add_app">Add an app to the home screen</string>
+    <string name="setting_add_app_sub">Apps that are hidden or not on the home screen yet</string>
+    <string name="setting_show_add_tile">Show the Add app tile</string>
+    <string name="setting_show_add_tile_sub">The tile at the end of the app grid; you can always add apps here</string>
+    <string name="menu_reset_name">Use the app\'s own name</string>
+    <string name="home_key_stopped">Stopped</string>
+    <string name="home_key_stopped_title">The Home button service has stopped</string>
+    <string name="home_key_stopped_body">The switch is still on, but Android stopped the service and won\'t start it again by itself.\n\nOn the next screen, open “Matinee Home button”, turn it off, then turn it on again.</string>
+    <string name="home_key_stopped_open">Open accessibility settings</string>
+    <string name="home_key_off_title">The Home button was switched off</string>
+    <string name="home_key_off_body">The TV switched off “Matinee Home button”, so the Home button opens the built-in home screen again. Some TVs do this when they close apps in standby.\n\nOn the next screen, open “Matinee Home button” and turn it on again. If you switched it off yourself, choose Cancel and Matinee won\'t ask again.</string>
+    <string name="notice_self_update">Matinee %1$s is available</string>
+    <string name="notice_self_update_sub">From GitHub · installs in one step</string>
+    <string name="notice_self_update_downloading">Downloading… %1$d%%</string>
+    <string name="notice_self_update_confirming">Confirm the update on the screen that opens. Select it again if nothing opened</string>
+    <string name="notice_self_update_failed">The update couldn\'t be installed</string>
+    <string name="notice_action_install">Install</string>
+    <string name="notice_action_retry">Try again</string>
+    <string name="notice_play_updates">Play Store updates</string>
+    <string name="notice_play_updates_sub">See pending updates in the Play Store</string>
+    <string name="close">Close</string>
+    <string name="setting_auto_adb">Automatic ADB</string>
+    <string name="setting_auto_adb_sub">Matinee grants its own permissions and turns the Home button back on when the TV switches it off</string>
+    <string name="adb_body">Matinee connects once to this TV\'s own debugging port to give itself permissions that Android only grants through it: changing secure settings, so it can turn the Home button back on by itself, and notification access. Everything stays on the TV.\n\n1. In the TV\'s Developer options, turn on USB debugging and network (ADB) debugging.\n2. Select Connect. When the TV asks, tick “Always allow” and choose Allow.</string>
+    <string name="adb_ready_body">Automatic ADB is set up. Matinee turns the Home button back on by itself whenever the TV switches it off.\n\nThe permissions stay if you turn network debugging off again, but a key\'s normal short press and Turn off screen need it left on.</string>
+    <string name="adb_connect">Connect</string>
+    <string name="adb_connecting_short">Waiting…</string>
+    <string name="adb_connecting">Waiting for the TV. Choose Allow on the prompt it shows.</string>
+    <string name="adb_failed_off">Network debugging is off. Turn on ADB debugging in the TV\'s Developer options, then try again.</string>
+    <string name="adb_failed_denied">The TV didn\'t allow the connection. Try again and choose Allow on its prompt.</string>
+    <string name="adb_failed_other">Setup didn\'t finish. Try again.</string>
+    <string name="setting_key_add">Assign a key</string>
+    <string name="setting_key_add_sub">Press a remote key, then choose what its short, long and double presses do</string>
+    <string name="key_learn_title">Press a key</string>
+    <string name="key_learn_body">Press the remote key you want to assign. Back cancels.</string>
+    <string name="key_learn_rejected">Home, Back, the arrows, OK and Power keep their own job. Press another key.</string>
+    <string name="press_short">Short press</string>
+    <string name="press_long">Long press</string>
+    <string name="press_double">Double press</string>
+    <string name="action_normal">Normal</string>
+    <string name="action_nothing">Do nothing</string>
+    <string name="action_matinee_home">Matinee home</string>
+    <string name="action_matinee_settings">Matinee settings</string>
+    <string name="action_screen_off">Turn off screen</string>
+    <string name="action_open_app">Open an app</string>
+    <string name="action_open_input">Switch to an input</string>
+    <string name="key_remove">Remove assignment</string>
+    <string name="note_remote_keys">Assigned keys work while the Matinee Home button is on. Keys without an action keep working as before.</string>
+    <string name="note_key_normal">Normal keeps the key\'s own action for that press. When a long or double press is assigned, the normal short press needs Automatic ADB; without it, the short press does nothing.</string>
+    <string name="home_key_switch_off_title">Turn off the Home button?</string>
+    <string name="home_key_switch_off_body">The remote\'s Home button will open the TV\'s own home screen again, and assigned keys stop working. Matinee won\'t turn it back on until you do.</string>
+    <string name="home_key_switch_off">Turn off</string>
+    <string name="key_menu">Menu</string>
+    <string name="key_settings">Settings</string>
+    <string name="key_input">Input</string>
+    <string name="key_guide">Guide</string>
+    <string name="key_info">Info</string>
+    <string name="key_red">Red</string>
+    <string name="key_green">Green</string>
+    <string name="key_yellow">Yellow</string>
+    <string name="key_blue">Blue</string>
+    <string name="key_play_pause">Play/Pause</string>
+    <string name="key_mute">Mute</string>
+    <string name="key_volume_up">Volume +</string>
+    <string name="key_volume_down">Volume −</string>
+    <string name="key_channel_up">Channel +</string>
+    <string name="key_channel_down">Channel −</string>
+    <string name="action_close_apps">Close background apps</string>
+    <string name="logo_av">AV / component</string>
+    <string name="setting_focus_outline">Outline on the selected app</string>
+    <string name="setting_focus_outline_sub">Turn off for a cleaner look; the selected app still grows and glows</string>
+    <string name="notice_self_update_permission">Allow Matinee to install apps in the TV\'s settings, or set up Automatic ADB</string>
+    <string name="notice_action_allow">Allow</string>
+    <string name="notice_action_reopen">Open again</string>
+    <string name="setting_background_apps">Background apps</string>
+    <string name="setting_background_apps_sub">See what still runs and close apps one by one or all at once</string>
+    <string name="background_apps_loading">Looking for running apps</string>
+    <string name="background_apps_needs_adb">Needs Automatic ADB</string>
+    <string name="background_apps_needs_adb_sub">Android shows other apps\' processes only over adb. Set it up under Bluetooth and remote.</string>
+    <string name="background_apps_none">No apps are running in the background</string>
+    <string name="background_apps_close_all">Close all</string>
+    <string name="background_apps_close">Close</string>
+    <string name="note_background_apps">Closing stops the app completely, like Force stop in the TV\'s settings. Close all skips the apps you keep out of cleanups.</string>
+    <string name="input_switch_failed">This TV can\'t switch to that input directly. Use the TV\'s own source button.</string>
 </resources>
