@@ -3,6 +3,7 @@ package com.tcltv.sahne
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tcltv.sahne.ui.DesignCanvas
+import com.tcltv.sahne.ui.LocalFocusOutline
 import com.tcltv.sahne.ui.LocalGlassEffects
 import com.tcltv.sahne.ui.LocalWallpaper
 import com.tcltv.sahne.ui.LocalWallpaperAnimated
@@ -36,14 +38,24 @@ fun SahneApp(viewModel: LauncherViewModel, resumeTick: Int) {
 
     fun openSettings() = viewModel.gate.requireForAdmin(R.string.pin_reason_admin) { showSettings = true }
 
-    // As the Home app, Back has nowhere to go; opened from the app list, Back returns to the TV's own home.
-    val isHome = remember(resumeTick) { viewModel.isHomeKeyTarget() }
+    val settingsRequested by viewModel.settingsRequested.collectAsStateWithLifecycle()
+    LaunchedEffect(settingsRequested) {
+        if (settingsRequested) {
+            viewModel.consumeSettingsRequest()
+            if (!showSettings) openSettings()
+        }
+    }
+
+    // As the Home app, Back has nowhere to go; opened from the app list, Back returns to the TV's own home. With the
+    // Home button service on, the TV's own home only sends the user straight back here, so Back stays put as well.
+    val isHome = remember(resumeTick) { viewModel.isHomeKeyTarget() || viewModel.isHomeKeyServiceRunning() }
     BackHandler(enabled = !showSettings && isHome) { }
 
     val wallpaper by viewModel.wallpaper.collectAsStateWithLifecycle()
     CompositionLocalProvider(
         LocalReduceMotion provides settings.reduceMotion,
         LocalGlassEffects provides settings.glassEffects,
+        LocalFocusOutline provides settings.focusOutline,
         LocalWallpaper provides wallpaper,
         LocalWallpaperAnimated provides settings.wallpaperAnimated,
     ) {

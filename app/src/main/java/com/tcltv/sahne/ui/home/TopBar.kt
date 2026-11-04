@@ -1,5 +1,9 @@
 package com.tcltv.sahne.ui.home
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.text.format.DateFormat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -25,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +44,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -51,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tcltv.sahne.LauncherViewModel
 import com.tcltv.sahne.Notice
@@ -67,6 +75,7 @@ import com.tcltv.sahne.ui.Palette
 import com.tcltv.sahne.ui.TintedIcon
 import com.tcltv.sahne.ui.glass
 import com.tcltv.sahne.ui.interStyle
+import com.tcltv.sahne.update.SelfUpdate
 import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -184,14 +193,39 @@ private fun ClockWeatherPill(viewModel: LauncherViewModel, onOpenSettings: () ->
     }
 }
 
+/**
+ * The current time, kept fresh by the system's own minute tick and by the screen turning on. A plain delay isn't
+ * enough: its clock stops while the TV sleeps in standby, so after waking the time it showed was the time it slept.
+ */
 @Composable
 private fun rememberNow(withSeconds: Boolean): LocalDateTime {
     var now by remember { mutableStateOf(LocalDateTime.now()) }
-    LaunchedEffect(withSeconds) {
-        while (true) {
-            now = LocalDateTime.now()
-            val millis = System.currentTimeMillis()
-            delay(if (withSeconds) 1_000 - millis % 1_000 else 60_000 - millis % 60_000)
+    val context = LocalContext.current
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                now = LocalDateTime.now()
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+    LifecycleResumeEffect(Unit) {
+        now = LocalDateTime.now()
+        onPauseOrDispose { }
+    }
+    if (withSeconds) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                now = LocalDateTime.now()
+                delay(1_000 - System.currentTimeMillis() % 1_000)
+            }
         }
     }
     return now
@@ -499,6 +533,22 @@ private fun NotificationPanel(viewModel: LauncherViewModel, onClose: () -> Unit)
                 modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
             ) {
                 viewModel.openNotice(notice)
+                // The update's row shows its download and any failure, so the panel stays open for it.
+                if (notice !is Notice.AppUpdate) onClose()
+            }
+        }
+        if (settings.showPlayUpdates) {
+            // Play announces pending updates only when it chooses to (rarely with auto-update on), so the way to
+            // them is always here.
+            PanelRow(
+                icon = R.drawable.ic_refresh,
+                tile = PLAY_TILE,
+                title = stringResource(R.string.notice_play_updates),
+                subtitle = stringResource(R.string.notice_play_updates_sub),
+                action = stringResource(R.string.notice_action_play),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                viewModel.openPlayUpdates()
                 onClose()
             }
         }
@@ -513,6 +563,7 @@ private fun NotificationPanel(viewModel: LauncherViewModel, onClose: () -> Unit)
 }
 
 private const val MAX_VISIBLE = 5
+private val PLAY_TILE = Color(0xFF1A73E8)
 
 @Composable
 private fun NoticeEmpty(focus: FocusRequester, onClose: () -> Unit) {
@@ -533,11 +584,11 @@ private fun NoticeEmpty(focus: FocusRequester, onClose: () -> Unit) {
 
 @Composable
 private fun NoticeRow(notice: Notice, modifier: Modifier, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
     val (icon, tile) = when (notice) {
-        is Notice.PlayUpdate -> R.drawable.ic_refresh to Color(0xFF1A73E8)
+        is Notice.PlayUpdate -> R.drawable.ic_refresh to PLAY_TILE
         is Notice.NewDevice -> notice.logo.icon to Color(0xFF5B2A8C)
         is Notice.MemoryHigh -> R.drawable.ic_cpu to Color(0xFF8A2A20)
+        is Notice.AppUpdate -> R.drawable.ic_brand_github to Color(0xFF24292F)
     }
     val (title, subtitle) = when (notice) {
         is Notice.PlayUpdate -> notice.update.title to (notice.update.text ?: stringResource(R.string.notice_play_source))
@@ -545,12 +596,41 @@ private fun NoticeRow(notice: Notice, modifier: Modifier, onClick: () -> Unit) {
             stringResource(R.string.notice_new_device_sub, notice.portLabel)
         is Notice.MemoryHigh -> stringResource(R.string.notice_memory_high, notice.percent) to
             stringResource(R.string.notice_memory_high_sub, notice.threshold)
+        is Notice.AppUpdate -> stringResource(R.string.notice_self_update, notice.update.version) to when (notice.update.stage) {
+            SelfUpdate.Stage.AVAILABLE -> stringResource(R.string.notice_self_update_sub)
+            SelfUpdate.Stage.DOWNLOADING -> stringResource(R.string.notice_self_update_downloading, notice.update.percent)
+            SelfUpdate.Stage.CONFIRMING -> stringResource(R.string.notice_self_update_confirming)
+            SelfUpdate.Stage.NEEDS_PERMISSION -> stringResource(R.string.notice_self_update_permission)
+            SelfUpdate.Stage.FAILED -> stringResource(R.string.notice_self_update_failed)
+        }
     }
     val action = when (notice) {
         is Notice.PlayUpdate -> stringResource(R.string.notice_action_play)
         is Notice.NewDevice -> stringResource(R.string.notice_action_device)
         is Notice.MemoryHigh -> stringResource(R.string.notice_action_memory)
+        is Notice.AppUpdate -> stringResource(
+            when (notice.update.stage) {
+                SelfUpdate.Stage.FAILED -> R.string.notice_action_retry
+                SelfUpdate.Stage.NEEDS_PERMISSION -> R.string.notice_action_allow
+                SelfUpdate.Stage.CONFIRMING -> R.string.notice_action_reopen
+                else -> R.string.notice_action_install
+            },
+        )
     }
+    PanelRow(icon, tile, title, subtitle, action, modifier, onClick)
+}
+
+@Composable
+private fun PanelRow(
+    icon: Int,
+    tile: Color,
+    title: String,
+    subtitle: String,
+    action: String,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
     Row(
         modifier
             .fillMaxWidth()
